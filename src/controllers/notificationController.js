@@ -1,0 +1,98 @@
+// src/controllers/notificationController.js
+const prisma = require('../config/database');
+const { success, error } = require('../utils/response');
+
+// ─── LISTE DES NOTIFICATIONS D'UN MEMBRE ──────────────────────────────────
+const getNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [notifications, total] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId },
+        orderBy: { sentAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.notification.count({ where: { userId } }),
+    ]);
+
+    return success(res, {
+      notifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MARQUER UNE NOTIFICATION COMME LUE ───────────────────────────────────
+const markAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const notif = await prisma.notification.findFirst({
+      where: { id, userId },
+    });
+
+    if (!notif) {
+      return error(res, 'Notification introuvable', 404);
+    }
+
+    await prisma.notification.update({
+      where: { id },
+      data: { isRead: true },
+    });
+
+    return success(res, null, 'Notification marquée comme lue');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MARQUER TOUTES COMME LUES ────────────────────────────────────────────
+const markAllAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    await prisma.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true },
+    });
+
+    return success(res, null, 'Toutes les notifications marquées comme lues');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── ENREGISTRER LE TOKEN FCM ──────────────────────────────────────────────
+const updateFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    const userId = req.user.id;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { fcmToken },
+    });
+
+    return success(res, null, 'Token FCM mis à jour');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+module.exports = { getNotifications, markAsRead, markAllAsRead, updateFcmToken };

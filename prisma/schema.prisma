@@ -1,0 +1,184 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── TENANTS (Gérants) ─────────────────────────────────────────────────────
+model Tenant {
+  id         String   @id @default(uuid())
+  name       String
+  phone      String   @unique
+  photoUrl   String?  @map("photo_url")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  groups        Group[]
+  users         User[]
+  notifications Notification[]
+
+  @@map("tenants")
+}
+
+// ─── USERS (Membres des tontines) ──────────────────────────────────────────
+model User {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  name       String
+  phone      String
+  photoUrl   String?  @map("photo_url")
+  fcmToken   String?  @map("fcm_token")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  groupMembers  GroupMember[]
+  contributions Contribution[]
+  turns         Turn[]
+  notifications Notification[]
+
+  @@unique([tenantId, phone])
+  @@map("users")
+}
+
+// ─── GROUPS (Groupes de tontine) ───────────────────────────────────────────
+model Group {
+  id             String          @id @default(uuid())
+  tenantId       String          @map("tenant_id")
+  name           String
+  type           ContributionType
+  frequency      Frequency
+  amount         Float
+  currency       String          @default("XOF")
+  description    String?
+  inviteCode     String          @unique @map("invite_code")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  groupMembers  GroupMember[]
+  contributions Contribution[]
+  turns         Turn[]
+
+  @@map("groups")
+}
+
+// ─── GROUP_MEMBERS ─────────────────────────────────────────────────────────
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String   @map("group_id")
+  userId    String   @map("user_id")
+  orderTurn Int      @map("order_turn")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  // Relations
+  group Group @relation(fields: [groupId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, userId])
+  @@unique([groupId, orderTurn])
+  @@map("group_members")
+}
+
+// ─── CONTRIBUTIONS ─────────────────────────────────────────────────────────
+model Contribution {
+  id          String             @id @default(uuid())
+  groupId     String             @map("group_id")
+  userId      String             @map("user_id")
+  status      ContributionStatus @default(PENDING)
+  amount      Float
+  dueDate     DateTime           @map("due_date")
+  paidDate    DateTime?          @map("paid_date")
+  note        String?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  group Group @relation(fields: [groupId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@map("contributions")
+}
+
+// ─── TURNS (Ordre des tours de réception) ──────────────────────────────────
+model Turn {
+  id            String     @id @default(uuid())
+  groupId       String     @map("group_id")
+  userId        String     @map("user_id")
+  turnNumber    Int        @map("turn_number")
+  scheduledDate DateTime   @map("scheduled_date")
+  status        TurnStatus @default(UPCOMING)
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  // Relations
+  group Group @relation(fields: [groupId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, turnNumber])
+  @@map("turns")
+}
+
+// ─── NOTIFICATIONS ─────────────────────────────────────────────────────────
+model Notification {
+  id        String           @id @default(uuid())
+  tenantId  String           @map("tenant_id")
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  sentAt    DateTime         @default(now()) @map("sent_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// ─── ENUMS ─────────────────────────────────────────────────────────────────
+enum ContributionType {
+  MONEY
+  PHONE
+  CLOTHES
+  APPLIANCE
+  OTHER
+}
+
+enum Frequency {
+  WEEKLY
+  MONTHLY
+  OTHER
+}
+
+enum ContributionStatus {
+  PENDING
+  RECEIVED
+  LATE
+}
+
+enum TurnStatus {
+  UPCOMING
+  CURRENT
+  DONE
+}
+
+enum NotificationType {
+  REMINDER_J2
+  REMINDER_J1
+  YOUR_TURN
+  CONTRIBUTION_CONFIRMED
+  MEMBER_JOINED
+  GENERAL
+}
