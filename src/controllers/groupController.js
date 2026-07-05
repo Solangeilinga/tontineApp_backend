@@ -7,21 +7,21 @@ const { createNotification } = require('../services/notificationService');
 // ─── CRÉER UN GROUPE ───────────────────────────────────────────────────────
 const createGroup = async (req, res) => {
   try {
-    const { name, type, frequency, amount, currency, description } = req.body;
+    const { name, type, frequency, amount, currency, description, maxMembers } = req.body;
     const tenantId = req.tenant.id;
-
     const inviteCode = generateInviteCode();
 
     const group = await prisma.group.create({
       data: {
         tenantId,
         name,
-        type,
-        frequency,
+        type: type || 'MONEY',
+        frequency: frequency || 'OTHER',
         amount: parseFloat(amount),
         currency: currency || 'XOF',
         description,
         inviteCode,
+        maxMembers: maxMembers ? parseInt(maxMembers) : null,
       },
     });
 
@@ -32,7 +32,7 @@ const createGroup = async (req, res) => {
   }
 };
 
-// ─── LISTE DES GROUPES DU GÉRANT ──────────────────────────────────────────
+// ─── LISTE DES GROUPES ─────────────────────────────────────────────────────
 const getGroups = async (req, res) => {
   try {
     const groups = await prisma.group.findMany({
@@ -43,7 +43,12 @@ const getGroups = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    return success(res, groups);
+    const enriched = groups.map(g => ({
+      ...g,
+      isFull: g.maxMembers !== null && g._count.groupMembers >= g.maxMembers,
+    }));
+
+    return success(res, enriched);
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -66,14 +71,16 @@ const getGroup = async (req, res) => {
           include: { user: true },
           orderBy: { turnNumber: 'asc' },
         },
+        _count: { select: { groupMembers: true } },
       },
     });
 
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
-    return success(res, group);
+    return success(res, {
+      ...group,
+      isFull: group.maxMembers !== null && group._count.groupMembers >= group.maxMembers,
+    });
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -84,25 +91,24 @@ const getGroup = async (req, res) => {
 const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, type, frequency, amount, currency, description } = req.body;
+    const { name, frequency, amount, currency, description, maxMembers } = req.body;
 
     const group = await prisma.group.findFirst({
       where: { id, tenantId: req.tenant.id },
     });
-
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
     const updated = await prisma.group.update({
       where: { id },
       data: {
         name,
-        type,
         frequency,
         amount: amount ? parseFloat(amount) : undefined,
         currency,
         description,
+        maxMembers: maxMembers !== undefined
+          ? (maxMembers === null ? null : parseInt(maxMembers))
+          : undefined,
       },
     });
 
@@ -117,14 +123,10 @@ const updateGroup = async (req, res) => {
 const archiveGroup = async (req, res) => {
   try {
     const { id } = req.params;
-
     const group = await prisma.group.findFirst({
       where: { id, tenantId: req.tenant.id },
     });
-
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
     await prisma.group.update({
       where: { id },
@@ -159,9 +161,60 @@ const getMemberGroups = async (req, res) => {
       ...m.group,
       orderTurn: m.orderTurn,
       joinedAt: m.joinedAt,
+      isFull: m.group.maxMembers !== null &&
+        m.group._count.groupMembers >= m.group.maxMembers,
     }));
 
     return success(res, groups);
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── RÉCAP D'UN CYCLE ─────────────────────────────────────────────────────
+const getCycleRecap = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await prisma.group.findFirst({
+      where: { id: groupId, tenantId: req.tenant.id },
+    });
+    if (!group) return error(res, 'Groupe introuvable', 404);
+
+    const contributions = await prisma.contribution.findMany({
+      where: { groupId },
+      include: { user: true },
+      orderBy: { dueDate: 'desc' },
+    });
+
+    const totalExpected = contributions.length * group.amount;
+    const received = contributions.filter(c => c.status === 'RECEIVED');
+    const pending = contributions.filter(c => c.status === 'PENDING');
+    const late = contributions.filter(c => c.status === 'LATE');
+    const totalReceived = received.length * group.amount;
+
+    return success(res, {
+      group: {
+        id: group.id,
+        name: group.name,
+        amount: group.amount,
+        currency: group.currency,
+      },
+      recap: {
+        totalMembers: contributions.length,
+        totalExpected,
+        totalReceived,
+        remaining: totalExpected - totalReceived,
+        receivedCount: received.length,
+        pendingCount: pending.length,
+        lateCount: late.length,
+        completionRate: contributions.length > 0
+          ? Math.round((received.length / contributions.length) * 100)
+          : 0,
+      },
+      contributions,
+    });
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -175,4 +228,5 @@ module.exports = {
   updateGroup,
   archiveGroup,
   getMemberGroups,
+  getCycleRecap,
 };

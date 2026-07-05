@@ -4,6 +4,7 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const { generalLimiter } = require('./middleware/rateLimiter');
+const { scheduleDailyReminders } = require('./services/notificationService');
 
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
@@ -28,7 +29,12 @@ app.use('/api/notifications', notificationRoutes);
 
 // ── Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', version: '1.0.0', app: 'TontineApp API' });
+  res.json({
+    status: 'ok',
+    version: '1.0.0',
+    app: 'TontineApp API',
+    env: process.env.NODE_ENV || 'development',
+  });
 });
 
 // ── 404
@@ -46,6 +52,9 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 TontineApp API démarrée sur le port ${PORT}`);
   console.log(`   ENV: ${process.env.NODE_ENV || 'development'}`);
+
+  // ── Lancer les rappels SMS quotidiens
+  scheduleDailyReminders();
 });
 
 module.exports = app;

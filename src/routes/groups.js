@@ -11,10 +11,6 @@ const contribCtrl = require('../controllers/contributionController');
 // ── Validation groupe
 const groupValidators = [
   body('name').notEmpty().withMessage('Nom du groupe requis'),
-  body('type').isIn(['MONEY', 'PHONE', 'CLOTHES', 'APPLIANCE', 'OTHER'])
-    .withMessage('Type invalide'),
-  body('frequency').isIn(['WEEKLY', 'MONTHLY', 'OTHER'])
-    .withMessage('Fréquence invalide'),
   body('amount').isFloat({ min: 0 }).withMessage('Montant invalide'),
 ];
 
@@ -26,6 +22,9 @@ router.get('/', authenticateTenant, groupCtrl.getGroups);
 router.get('/:id', authenticateTenant, groupCtrl.getGroup);
 router.put('/:id', authenticateTenant, validate, groupCtrl.updateGroup);
 router.patch('/:id/archive', authenticateTenant, groupCtrl.archiveGroup);
+
+// Récap cycle
+router.get('/:groupId/recap', authenticateTenant, groupCtrl.getCycleRecap);
 
 // Membres d'un groupe
 router.get('/:groupId/members', authenticateTenant, memberCtrl.getMembers);

@@ -8,20 +8,14 @@ const getMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    // Vérifier que le groupe appartient au gérant
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
-
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
     const members = await prisma.groupMember.findMany({
       where: { groupId },
-      include: {
-        user: true,
-      },
+      include: { user: true },
       orderBy: { orderTurn: 'asc' },
     });
 
@@ -42,19 +36,25 @@ const addMember = async (req, res) => {
     const { normalizePhone } = require('../utils/phone');
     const normalizedPhone = normalizePhone(phone);
 
+    // Récupérer groupe avec comptage membres
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId },
+      include: { _count: { select: { groupMembers: true } } },
     });
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
+    // ── Vérifier si groupe plein
+    if (group.maxMembers !== null && group._count.groupMembers >= group.maxMembers) {
+      return error(res,
+        `Groupe complet (${group._count.groupMembers}/${group.maxMembers} membres). Modifiez le nombre maximum pour ajouter des membres.`,
+        400
+      );
     }
 
     // Créer ou récupérer l'utilisateur
     let user = await prisma.user.findUnique({
       where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
     });
-
     if (!user) {
       user = await prisma.user.create({
         data: { tenantId, name, phone: normalizedPhone },
@@ -65,12 +65,9 @@ const addMember = async (req, res) => {
     const existing = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId: user.id } },
     });
+    if (existing) return error(res, 'Ce membre est déjà dans le groupe', 409);
 
-    if (existing) {
-      return error(res, 'Ce membre est déjà dans le groupe', 409);
-    }
-
-    // Calculer le prochain tour
+    // Prochain tour
     const maxTurn = await prisma.groupMember.aggregate({
       where: { groupId },
       _max: { orderTurn: true },
@@ -85,7 +82,7 @@ const addMember = async (req, res) => {
       include: { user: true },
     });
 
-    // Notifier le membre s'il a un token FCM
+    // Notifier le membre
     if (user.fcmToken) {
       await createNotification({
         tenantId,
@@ -113,10 +110,7 @@ const removeMember = async (req, res) => {
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
-
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
     await prisma.groupMember.delete({
       where: { groupId_userId: { groupId, userId } },
@@ -133,17 +127,13 @@ const removeMember = async (req, res) => {
 const updateTurnOrder = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { orders } = req.body; // [{ userId, orderTurn }]
+    const { orders } = req.body;
 
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
+    if (!group) return error(res, 'Groupe introuvable', 404);
 
-    if (!group) {
-      return error(res, 'Groupe introuvable', 404);
-    }
-
-    // Mise à jour en transaction
     await prisma.$transaction(
       orders.map(({ userId, orderTurn }) =>
         prisma.groupMember.update({
@@ -160,20 +150,16 @@ const updateTurnOrder = async (req, res) => {
   }
 };
 
-// ─── VUE MEMBRE : Voir son tour et ceux des autres ────────────────────────
+// ─── VUE MEMBRE : Voir son tour ────────────────────────────────────────────
 const getMemberTurns = async (req, res) => {
   try {
     const { groupId } = req.params;
     const userId = req.user.id;
 
-    // Vérifier qu'il est membre du groupe
     const membership = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId } },
     });
-
-    if (!membership) {
-      return error(res, 'Vous n\'êtes pas membre de ce groupe', 403);
-    }
+    if (!membership) return error(res, 'Vous n\'êtes pas membre de ce groupe', 403);
 
     const members = await prisma.groupMember.findMany({
       where: { groupId },
