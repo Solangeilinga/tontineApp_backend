@@ -4,7 +4,6 @@ const { success, error, created } = require('../utils/response');
 const { generateInviteCode } = require('../utils/otp');
 const { createNotification } = require('../services/notificationService');
 
-// ─── CRÉER UN GROUPE ───────────────────────────────────────────────────────
 const createGroup = async (req, res) => {
   try {
     const { name, type, frequency, amount, currency, description, maxMembers } = req.body;
@@ -32,14 +31,11 @@ const createGroup = async (req, res) => {
   }
 };
 
-// ─── LISTE DES GROUPES ─────────────────────────────────────────────────────
 const getGroups = async (req, res) => {
   try {
     const groups = await prisma.group.findMany({
       where: { tenantId: req.tenant.id },
-      include: {
-        _count: { select: { groupMembers: true } },
-      },
+      include: { _count: { select: { groupMembers: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -55,7 +51,6 @@ const getGroups = async (req, res) => {
   }
 };
 
-// ─── DÉTAIL D'UN GROUPE ────────────────────────────────────────────────────
 const getGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -128,11 +123,7 @@ const archiveGroup = async (req, res) => {
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    await prisma.group.update({
-      where: { id },
-      data: { isActive: false },
-    });
-
+    await prisma.group.update({ where: { id }, data: { isActive: false } });
     return success(res, null, 'Groupe archivé');
   } catch (err) {
     console.error(err);
@@ -140,7 +131,23 @@ const archiveGroup = async (req, res) => {
   }
 };
 
-// ─── VUE MEMBRE : Ses groupes ─────────────────────────────────────────────
+// ─── DÉSARCHIVER UN GROUPE ─────────────────────────────────────────────────
+const unarchiveGroup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const group = await prisma.group.findFirst({
+      where: { id, tenantId: req.tenant.id },
+    });
+    if (!group) return error(res, 'Groupe introuvable', 404);
+
+    await prisma.group.update({ where: { id }, data: { isActive: true } });
+    return success(res, null, 'Groupe réactivé');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 const getMemberGroups = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -148,11 +155,7 @@ const getMemberGroups = async (req, res) => {
     const memberships = await prisma.groupMember.findMany({
       where: { userId },
       include: {
-        group: {
-          include: {
-            _count: { select: { groupMembers: true } },
-          },
-        },
+        group: { include: { _count: { select: { groupMembers: true } } } },
       },
       orderBy: { joinedAt: 'desc' },
     });
@@ -172,7 +175,6 @@ const getMemberGroups = async (req, res) => {
   }
 };
 
-// ─── RÉCAP D'UN CYCLE ─────────────────────────────────────────────────────
 const getCycleRecap = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -195,12 +197,7 @@ const getCycleRecap = async (req, res) => {
     const totalReceived = received.length * group.amount;
 
     return success(res, {
-      group: {
-        id: group.id,
-        name: group.name,
-        amount: group.amount,
-        currency: group.currency,
-      },
+      group: { id: group.id, name: group.name, amount: group.amount, currency: group.currency },
       recap: {
         totalMembers: contributions.length,
         totalExpected,
@@ -227,6 +224,7 @@ module.exports = {
   getGroup,
   updateGroup,
   archiveGroup,
+  unarchiveGroup,
   getMemberGroups,
   getCycleRecap,
 };

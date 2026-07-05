@@ -3,11 +3,9 @@ const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
 const { createNotification } = require('../services/notificationService');
 
-// ─── LISTE DES MEMBRES D'UN GROUPE ────────────────────────────────────────
 const getMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
@@ -26,7 +24,6 @@ const getMembers = async (req, res) => {
   }
 };
 
-// ─── AJOUTER UN MEMBRE MANUELLEMENT ───────────────────────────────────────
 const addMember = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -36,14 +33,12 @@ const addMember = async (req, res) => {
     const { normalizePhone } = require('../utils/phone');
     const normalizedPhone = normalizePhone(phone);
 
-    // Récupérer groupe avec comptage membres
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId },
       include: { _count: { select: { groupMembers: true } } },
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    // ── Vérifier si groupe plein
     if (group.maxMembers !== null && group._count.groupMembers >= group.maxMembers) {
       return error(res,
         `Groupe complet (${group._count.groupMembers}/${group.maxMembers} membres). Modifiez le nombre maximum pour ajouter des membres.`,
@@ -51,7 +46,6 @@ const addMember = async (req, res) => {
       );
     }
 
-    // Créer ou récupérer l'utilisateur
     let user = await prisma.user.findUnique({
       where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
     });
@@ -61,13 +55,11 @@ const addMember = async (req, res) => {
       });
     }
 
-    // Vérifier qu'il n'est pas déjà membre
     const existing = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId: user.id } },
     });
     if (existing) return error(res, 'Ce membre est déjà dans le groupe', 409);
 
-    // Prochain tour
     const maxTurn = await prisma.groupMember.aggregate({
       where: { groupId },
       _max: { orderTurn: true },
@@ -82,19 +74,6 @@ const addMember = async (req, res) => {
       include: { user: true },
     });
 
-    // Notifier le membre
-    if (user.fcmToken) {
-      await createNotification({
-        tenantId,
-        userId: user.id,
-        type: 'MEMBER_JOINED',
-        title: `Bienvenue dans ${group.name}`,
-        message: `Vous avez été ajouté au groupe de tontine "${group.name}"`,
-        data: { groupId },
-        fcmToken: user.fcmToken,
-      });
-    }
-
     return created(res, member, 'Membre ajouté avec succès');
   } catch (err) {
     console.error(err);
@@ -102,11 +81,47 @@ const addMember = async (req, res) => {
   }
 };
 
-// ─── RETIRER UN MEMBRE ─────────────────────────────────────────────────────
+// ─── MODIFIER UN MEMBRE ────────────────────────────────────────────────────
+const updateMember = async (req, res) => {
+  try {
+    const { groupId, userId } = req.params;
+    const { name, phone } = req.body;
+    const tenantId = req.tenant.id;
+
+    // Vérifier que le groupe appartient au gérant
+    const group = await prisma.group.findFirst({
+      where: { id: groupId, tenantId },
+    });
+    if (!group) return error(res, 'Groupe introuvable', 404);
+
+    // Vérifier que le membre est dans le groupe
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+    if (!membership) return error(res, 'Membre introuvable dans ce groupe', 404);
+
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (phone) {
+      const { normalizePhone } = require('../utils/phone');
+      updateData.phone = normalizePhone(phone);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+    });
+
+    return success(res, updatedUser, 'Membre modifié avec succès');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 const removeMember = async (req, res) => {
   try {
     const { groupId, userId } = req.params;
-
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
@@ -123,7 +138,6 @@ const removeMember = async (req, res) => {
   }
 };
 
-// ─── MODIFIER L'ORDRE DES TOURS ───────────────────────────────────────────
 const updateTurnOrder = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -150,7 +164,6 @@ const updateTurnOrder = async (req, res) => {
   }
 };
 
-// ─── VUE MEMBRE : Voir son tour ────────────────────────────────────────────
 const getMemberTurns = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -173,11 +186,7 @@ const getMemberTurns = async (req, res) => {
       orderBy: { turnNumber: 'asc' },
     });
 
-    return success(res, {
-      myTurn: membership.orderTurn,
-      members,
-      turns,
-    });
+    return success(res, { myTurn: membership.orderTurn, members, turns });
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -187,6 +196,7 @@ const getMemberTurns = async (req, res) => {
 module.exports = {
   getMembers,
   addMember,
+  updateMember,
   removeMember,
   updateTurnOrder,
   getMemberTurns,

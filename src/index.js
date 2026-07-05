@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const { scheduleDailyReminders } = require('./services/notificationService');
+const { initFirebase } = require('./config/firebase');
 
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
@@ -31,7 +32,7 @@ app.use('/api/notifications', notificationRoutes);
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.0.0',
+    version: '1.1.0',
     app: 'TontineApp API',
     env: process.env.NODE_ENV || 'development',
   });
@@ -53,7 +54,14 @@ app.listen(PORT, () => {
   console.log(`🚀 TontineApp API démarrée sur le port ${PORT}`);
   console.log(`   ENV: ${process.env.NODE_ENV || 'development'}`);
 
-  // ── Lancer les rappels SMS quotidiens
+  // ── Initialiser Firebase (si variables configurées)
+  if (process.env.FIREBASE_PROJECT_ID) {
+    initFirebase();
+  } else {
+    console.log('⚠️  Firebase non configuré — push notifications désactivées');
+  }
+
+  // ── Rappels SMS quotidiens
   scheduleDailyReminders();
 });
 

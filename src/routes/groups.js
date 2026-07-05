@@ -8,7 +8,6 @@ const groupCtrl = require('../controllers/groupController');
 const memberCtrl = require('../controllers/memberController');
 const contribCtrl = require('../controllers/contributionController');
 
-// ── Validation groupe
 const groupValidators = [
   body('name').notEmpty().withMessage('Nom du groupe requis'),
   body('amount').isFloat({ min: 0 }).withMessage('Montant invalide'),
@@ -22,11 +21,12 @@ router.get('/', authenticateTenant, groupCtrl.getGroups);
 router.get('/:id', authenticateTenant, groupCtrl.getGroup);
 router.put('/:id', authenticateTenant, validate, groupCtrl.updateGroup);
 router.patch('/:id/archive', authenticateTenant, groupCtrl.archiveGroup);
+router.patch('/:id/unarchive', authenticateTenant, groupCtrl.unarchiveGroup);
 
 // Récap cycle
 router.get('/:groupId/recap', authenticateTenant, groupCtrl.getCycleRecap);
 
-// Membres d'un groupe
+// Membres
 router.get('/:groupId/members', authenticateTenant, memberCtrl.getMembers);
 router.post('/:groupId/members',
   authenticateTenant,
@@ -37,6 +37,7 @@ router.post('/:groupId/members',
   validate,
   memberCtrl.addMember
 );
+router.put('/:groupId/members/:userId', authenticateTenant, memberCtrl.updateMember);
 router.delete('/:groupId/members/:userId', authenticateTenant, memberCtrl.removeMember);
 router.put('/:groupId/members/turn-order',
   authenticateTenant,
@@ -45,7 +46,7 @@ router.put('/:groupId/members/turn-order',
   memberCtrl.updateTurnOrder
 );
 
-// Cotisations d'un groupe
+// Cotisations
 router.get('/:groupId/contributions', authenticateTenant, contribCtrl.getContributions);
 router.post('/:groupId/contributions/cycle',
   authenticateTenant,
