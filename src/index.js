@@ -11,6 +11,9 @@ const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 
+// ── Trust proxy (obligatoire sur Render)
+app.set('trust proxy', 1);
+
 // ── Sécurité & parsing
 app.use(helmet());
 app.use(cors({ origin: '*' }));
