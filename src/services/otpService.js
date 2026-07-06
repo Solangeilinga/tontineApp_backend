@@ -35,8 +35,8 @@ const sendOTP = async (phone) => {
   try {
     await sms.send({
       to: [phone],
-      message: `Votre code de vérification TontineApp est : ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} minutes.`,
-      from: process.env.AT_SENDER_ID || 'TontineApp',
+      message: `Votre code de vérification MaTontine est : ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} minutes.`,
+      from: process.env.AT_SENDER_ID || 'MaTontine',
     });
     return { success: true };
   } catch (err) {

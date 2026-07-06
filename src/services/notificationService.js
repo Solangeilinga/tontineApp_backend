@@ -16,7 +16,7 @@ const sendSMS = async (phone, message) => {
     await at.SMS.send({
       to: [phone],
       message,
-      from: process.env.AT_SENDER_ID || 'TontineApp',
+      from: process.env.AT_SENDER_ID || 'MaTontine',
     });
     return { success: true };
   } catch (err) {
@@ -40,7 +40,7 @@ const sendPush = async ({ fcmToken, title, body, data = {} }) => {
       ),
       android: {
         notification: {
-          channelId: 'tontineapp_channel',
+          channelId: 'matontine_channel',
           priority: 'high',
           sound: 'default',
         },
@@ -155,8 +155,8 @@ const sendContributionReminders = async () => {
     for (const contrib of contributions) {
       const dayLabel = daysAhead === 1 ? 'demain' : `dans ${daysAhead} jours`;
       const smsMessage = daysAhead === 1
-        ? `⏰ TontineApp - DEMAIN : Votre cotisation de ${contrib.amount} ${contrib.group.currency} pour "${contrib.group.name}" est due demain. Pensez à payer !`
-        : `📅 TontineApp - Rappel : Votre cotisation de ${contrib.amount} ${contrib.group.currency} pour "${contrib.group.name}" est due ${dayLabel}.`;
+        ? `⏰ MaTontine - DEMAIN : Votre cotisation de ${contrib.amount} ${contrib.group.currency} pour "${contrib.group.name}" est due demain. Pensez à payer !`
+        : `📅 MaTontine - Rappel : Votre cotisation de ${contrib.amount} ${contrib.group.currency} pour "${contrib.group.name}" est due ${dayLabel}.`;
 
       const pushTitle = daysAhead === 1
         ? `⏰ Cotisation due demain !`

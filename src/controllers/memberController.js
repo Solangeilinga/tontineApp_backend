@@ -81,20 +81,17 @@ const addMember = async (req, res) => {
   }
 };
 
-// ─── MODIFIER UN MEMBRE ────────────────────────────────────────────────────
 const updateMember = async (req, res) => {
   try {
     const { groupId, userId } = req.params;
     const { name, phone } = req.body;
     const tenantId = req.tenant.id;
 
-    // Vérifier que le groupe appartient au gérant
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId },
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    // Vérifier que le membre est dans le groupe
     const membership = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId } },
     });
@@ -164,6 +161,7 @@ const updateTurnOrder = async (req, res) => {
   }
 };
 
+// ─── VUE MEMBRE : Voir son tour ────────────────────────────────────────────
 const getMemberTurns = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -186,7 +184,23 @@ const getMemberTurns = async (req, res) => {
       orderBy: { turnNumber: 'asc' },
     });
 
-    return success(res, { myTurn: membership.orderTurn, members, turns });
+    // ── Infos groupe pour calculer les dates estimées
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+    });
+
+    return success(res, {
+      myTurn: membership.orderTurn,
+      members,
+      turns,
+      group: {
+        name: group.name,
+        frequency: group.frequency,
+        description: group.description,
+        amount: group.amount,
+        currency: group.currency,
+      },
+    });
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);

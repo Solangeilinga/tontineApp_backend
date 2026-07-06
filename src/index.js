@@ -33,7 +33,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     version: '1.1.0',
-    app: 'TontineApp API',
+    app: 'MaTontine API',
     env: process.env.NODE_ENV || 'development',
   });
 });
@@ -51,7 +51,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 TontineApp API démarrée sur le port ${PORT}`);
+  console.log(`🚀 MaTontine API démarrée sur le port ${PORT}`);
   console.log(`   ENV: ${process.env.NODE_ENV || 'development'}`);
 
   // ── Initialiser Firebase (si variables configurées)

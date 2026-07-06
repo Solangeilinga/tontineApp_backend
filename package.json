@@ -1,7 +1,7 @@
 {
-  "name": "tontineapp-backend",
+  "name": "matontine-backend",
   "version": "1.0.0",
-  "description": "TontineApp API - Gestion de tontines multi-tenant",
+  "description": "MaTontine API - Gestion de tontines multi-tenant",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
