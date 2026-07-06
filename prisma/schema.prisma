@@ -14,6 +14,7 @@ model Tenant {
   name       String
   phone      String   @unique
   photoUrl   String?  @map("photo_url")
+  pinHash    String?  @map("pin_hash")
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -34,6 +35,7 @@ model User {
   phone      String
   photoUrl   String?  @map("photo_url")
   fcmToken   String?  @map("fcm_token")
+  pinHash    String?  @map("pin_hash")
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -51,18 +53,19 @@ model User {
 
 // ─── GROUPS (Groupes de tontine) ───────────────────────────────────────────
 model Group {
-  id             String          @id @default(uuid())
-  tenantId       String          @map("tenant_id")
-  name           String
-  type           ContributionType
-  frequency      Frequency
-  amount         Float
-  currency       String          @default("XOF")
-  description    String?
-  inviteCode     String          @unique @map("invite_code")
-  isActive       Boolean         @default(true) @map("is_active")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+  id           String           @id @default(uuid())
+  tenantId     String           @map("tenant_id")
+  name         String
+  type         ContributionType
+  frequency    Frequency
+  amount       Float
+  currency     String           @default("XOF")
+  description  String?
+  inviteCode   String           @unique @map("invite_code")
+  maxMembers   Int?             @map("max_members")
+  isActive     Boolean          @default(true) @map("is_active")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
 
   // Relations
   tenant        Tenant         @relation(fields: [tenantId], references: [id])
@@ -92,16 +95,16 @@ model GroupMember {
 
 // ─── CONTRIBUTIONS ─────────────────────────────────────────────────────────
 model Contribution {
-  id          String             @id @default(uuid())
-  groupId     String             @map("group_id")
-  userId      String             @map("user_id")
-  status      ContributionStatus @default(PENDING)
-  amount      Float
-  dueDate     DateTime           @map("due_date")
-  paidDate    DateTime?          @map("paid_date")
-  note        String?
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
+  id        String             @id @default(uuid())
+  groupId   String             @map("group_id")
+  userId    String             @map("user_id")
+  status    ContributionStatus @default(PENDING)
+  amount    Float
+  dueDate   DateTime           @map("due_date")
+  paidDate  DateTime?          @map("paid_date")
+  note      String?
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
 
   // Relations
   group Group @relation(fields: [groupId], references: [id])
@@ -110,7 +113,7 @@ model Contribution {
   @@map("contributions")
 }
 
-// ─── TURNS (Ordre des tours de réception) ──────────────────────────────────
+// ─── TURNS ─────────────────────────────────────────────────────────────────
 model Turn {
   id            String     @id @default(uuid())
   groupId       String     @map("group_id")
@@ -130,15 +133,15 @@ model Turn {
 
 // ─── NOTIFICATIONS ─────────────────────────────────────────────────────────
 model Notification {
-  id        String           @id @default(uuid())
-  tenantId  String           @map("tenant_id")
-  userId    String           @map("user_id")
-  type      NotificationType
-  title     String
-  message   String
-  data      Json?
-  isRead    Boolean          @default(false) @map("is_read")
-  sentAt    DateTime         @default(now()) @map("sent_at")
+  id       String           @id @default(uuid())
+  tenantId String           @map("tenant_id")
+  userId   String           @map("user_id")
+  type     NotificationType
+  title    String
+  message  String
+  data     Json?
+  isRead   Boolean          @default(false) @map("is_read")
+  sentAt   DateTime         @default(now()) @map("sent_at")
 
   // Relations
   tenant Tenant @relation(fields: [tenantId], references: [id])
