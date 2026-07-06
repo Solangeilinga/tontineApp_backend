@@ -4,6 +4,7 @@ const { sendOTP, verifyOTP } = require('../services/otpService');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
 const { success, error, created } = require('../utils/response');
 const { normalizePhone, isValidPhone } = require('../utils/phone');
+const bcrypt = require('bcryptjs');
 
 // ─── GÉRANT : Demander OTP pour inscription ────────────────────────────────
 const tenantRequestOTP = async (req, res) => {
@@ -12,23 +13,28 @@ const tenantRequestOTP = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     if (!isValidPhone(normalizedPhone)) {
-      return error(res, 'Numéro de téléphone invalide', 400);
+      return error(res, 'Numéro invalide', 400);
     }
 
     const existing = await prisma.tenant.findUnique({
       where: { phone: normalizedPhone },
     });
+
     if (existing) {
-      return error(res, 'Ce numéro est déjà enregistré. Utilisez la connexion.', 409);
+      return error(res, 'Ce numéro est déjà enregistré.', 409);
     }
 
     const { getRedisClient } = require('../config/redis');
     const redis = await getRedisClient();
-    await redis.setEx(`pending_tenant:${normalizedPhone}`, 600, JSON.stringify({ name }));
+    await redis.setEx(
+      `pending_tenant:${normalizedPhone}`,
+      600,
+      JSON.stringify({ name })
+    );
 
     await sendOTP(normalizedPhone);
 
-    return success(res, null, `Code envoyé au ${normalizedPhone}`);
+    return success(res, null, 'Code envoyé');
   } catch (err) {
     console.error(err);
     return error(res, err.message || 'Erreur serveur', 500);
@@ -42,12 +48,17 @@ const tenantVerifyAndRegister = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     const result = await verifyOTP(normalizedPhone, otp);
-    if (!result.valid) return error(res, result.reason, 400);
+    if (!result.valid) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const { getRedisClient } = require('../config/redis');
     const redis = await getRedisClient();
     const pendingData = await redis.get(`pending_tenant:${normalizedPhone}`);
-    if (!pendingData) return error(res, 'Session expirée. Recommencez l\'inscription.', 400);
+
+    if (!pendingData) {
+      return error(res, 'Session expirée. Recommencez.', 400);
+    }
 
     const { name } = JSON.parse(pendingData);
     await redis.del(`pending_tenant:${normalizedPhone}`);
@@ -63,7 +74,7 @@ const tenantVerifyAndRegister = async (req, res) => {
       tenant: { id: tenant.id, name: tenant.name, phone: tenant.phone },
       accessToken,
       refreshToken,
-    }, 'Compte gérant créé avec succès');
+    }, 'Compte créé avec succès');
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -77,18 +88,23 @@ const tenantLoginRequestOTP = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     if (!isValidPhone(normalizedPhone)) {
-      return error(res, 'Numéro de téléphone invalide', 400);
+      return error(res, 'Numéro invalide', 400);
     }
 
     const tenant = await prisma.tenant.findUnique({
       where: { phone: normalizedPhone },
     });
-    if (!tenant) return error(res, 'Aucun compte trouvé avec ce numéro', 404);
-    if (!tenant.isActive) return error(res, 'Compte désactivé', 403);
+
+    // Message générique — ne révèle pas si le compte existe
+    if (!tenant || !tenant.isActive) {
+      return success(res, null,
+        'Si ce numéro est enregistré, un code vous sera envoyé.');
+    }
 
     await sendOTP(normalizedPhone);
 
-    return success(res, null, `Code envoyé au ${normalizedPhone}`);
+    return success(res, null,
+      'Si ce numéro est enregistré, un code vous sera envoyé.');
   } catch (err) {
     console.error(err);
     return error(res, err.message || 'Erreur serveur', 500);
@@ -102,18 +118,28 @@ const tenantLoginVerify = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     const result = await verifyOTP(normalizedPhone, otp);
-    if (!result.valid) return error(res, result.reason, 400);
+    if (!result.valid) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const tenant = await prisma.tenant.findUnique({
       where: { phone: normalizedPhone },
     });
-    if (!tenant) return error(res, 'Compte introuvable', 404);
+
+    if (!tenant) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const accessToken = generateToken(tenant.id, 'tenant');
     const refreshToken = generateRefreshToken(tenant.id, 'tenant');
 
     return success(res, {
-      tenant: { id: tenant.id, name: tenant.name, phone: tenant.phone, photoUrl: tenant.photoUrl },
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        phone: tenant.phone,
+        photoUrl: tenant.photoUrl,
+      },
       accessToken,
       refreshToken,
     }, 'Connexion réussie');
@@ -130,19 +156,21 @@ const memberRequestOTP = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     if (!isValidPhone(normalizedPhone)) {
-      return error(res, 'Numéro de téléphone invalide', 400);
+      return error(res, 'Numéro invalide', 400);
     }
 
     const group = await prisma.group.findUnique({
       where: { inviteCode },
       include: { _count: { select: { groupMembers: true } } },
     });
+
     if (!group) return error(res, 'Code d\'invitation invalide', 404);
     if (!group.isActive) return error(res, 'Ce groupe n\'est plus actif', 400);
 
-    // ── Vérifier si groupe plein avant même d'envoyer l'OTP
-    if (group.maxMembers !== null && group._count.groupMembers >= group.maxMembers) {
-      return error(res, 'Ce groupe est complet. Contactez le gérant pour augmenter la capacité.', 400);
+    if (group.maxMembers !== null &&
+        group._count.groupMembers >= group.maxMembers) {
+      return error(res,
+        'Ce groupe est complet. Contactez le gérant.', 400);
     }
 
     const { getRedisClient } = require('../config/redis');
@@ -150,7 +178,12 @@ const memberRequestOTP = async (req, res) => {
     await redis.setEx(
       `pending_member:${normalizedPhone}`,
       600,
-      JSON.stringify({ name, inviteCode, tenantId: group.tenantId, groupId: group.id })
+      JSON.stringify({
+        name,
+        inviteCode,
+        tenantId: group.tenantId,
+        groupId: group.id,
+      })
     );
 
     await sendOTP(normalizedPhone);
@@ -159,7 +192,7 @@ const memberRequestOTP = async (req, res) => {
       groupName: group.name,
       membersCount: group._count.groupMembers,
       maxMembers: group.maxMembers,
-    }, `Code envoyé au ${normalizedPhone}`);
+    }, 'Code envoyé');
   } catch (err) {
     console.error(err);
     return error(res, err.message || 'Erreur serveur', 500);
@@ -173,17 +206,21 @@ const memberVerifyAndJoin = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     const result = await verifyOTP(normalizedPhone, otp);
-    if (!result.valid) return error(res, result.reason, 400);
+    if (!result.valid) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const { getRedisClient } = require('../config/redis');
     const redis = await getRedisClient();
     const pendingData = await redis.get(`pending_member:${normalizedPhone}`);
-    if (!pendingData) return error(res, 'Session expirée. Recommencez.', 400);
+
+    if (!pendingData) {
+      return error(res, 'Session expirée. Recommencez.', 400);
+    }
 
     const { name, tenantId, groupId } = JSON.parse(pendingData);
     await redis.del(`pending_member:${normalizedPhone}`);
 
-    // ── Re-vérifier si groupe plein au moment de la vérification
     const group = await prisma.group.findUnique({
       where: { id: groupId },
       include: { _count: { select: { groupMembers: true } } },
@@ -191,13 +228,15 @@ const memberVerifyAndJoin = async (req, res) => {
 
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    if (group.maxMembers !== null && group._count.groupMembers >= group.maxMembers) {
+    if (group.maxMembers !== null &&
+        group._count.groupMembers >= group.maxMembers) {
       return error(res, 'Ce groupe est complet. Contactez le gérant.', 400);
     }
 
     let user = await prisma.user.findUnique({
       where: { tenantId_phone: { tenantId, phone: normalizedPhone } },
     });
+
     if (!user) {
       user = await prisma.user.create({
         data: { tenantId, name, phone: normalizedPhone },
@@ -243,36 +282,48 @@ const memberLoginRequestOTP = async (req, res) => {
     const normalizedPhone = normalizePhone(phone);
 
     if (!isValidPhone(normalizedPhone)) {
-      return error(res, 'Numéro de téléphone invalide', 400);
+      return error(res, 'Numéro invalide', 400);
     }
 
     const user = await prisma.user.findFirst({
       where: { phone: normalizedPhone, isActive: true },
     });
-    if (!user) return error(res, 'Aucun compte membre trouvé avec ce numéro', 404);
+
+    // Message générique
+    if (!user) {
+      return success(res, null,
+        'Si ce numéro est enregistré, un code vous sera envoyé.');
+    }
 
     await sendOTP(normalizedPhone);
 
-    return success(res, null, `Code envoyé au ${normalizedPhone}`);
+    return success(res, null,
+      'Si ce numéro est enregistré, un code vous sera envoyé.');
   } catch (err) {
     console.error(err);
     return error(res, err.message || 'Erreur serveur', 500);
   }
 };
 
+// ─── MEMBRE : Vérifier OTP connexion ──────────────────────────────────────
 const memberLoginVerify = async (req, res) => {
   try {
     const { phone, otp } = req.body;
     const normalizedPhone = normalizePhone(phone);
 
     const result = await verifyOTP(normalizedPhone, otp);
-    if (!result.valid) return error(res, result.reason, 400);
+    if (!result.valid) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const user = await prisma.user.findFirst({
       where: { phone: normalizedPhone, isActive: true },
       include: { tenant: true },
     });
-    if (!user) return error(res, 'Compte introuvable', 404);
+
+    if (!user) {
+      return error(res, 'Code incorrect ou expiré', 400);
+    }
 
     const accessToken = generateToken(user.id, 'user');
     const refreshToken = generateRefreshToken(user.id, 'user');
@@ -288,7 +339,7 @@ const memberLoginVerify = async (req, res) => {
   }
 };
 
-// ─── PROFIL GÉRANT ────────────────────────────────────────────────────────
+// ─── GÉRANT : Profil ──────────────────────────────────────────────────────
 const updateTenantProfile = async (req, res) => {
   try {
     const { name, photoUrl } = req.body;
@@ -309,10 +360,7 @@ const updateTenantProfile = async (req, res) => {
   }
 };
 
-
-const bcrypt = require('bcryptjs');
-
-// ─── GÉRANT : Définir/Modifier le PIN ─────────────────────────────────────
+// ─── GÉRANT : PIN ─────────────────────────────────────────────────────────
 const tenantSetPin = async (req, res) => {
   try {
     const { pin } = req.body;
@@ -335,7 +383,6 @@ const tenantSetPin = async (req, res) => {
   }
 };
 
-// ─── GÉRANT : Vérifier le PIN ──────────────────────────────────────────────
 const tenantVerifyPin = async (req, res) => {
   try {
     const { pin } = req.body;
@@ -361,7 +408,6 @@ const tenantVerifyPin = async (req, res) => {
   }
 };
 
-// ─── GÉRANT : Vérifier si PIN existe ──────────────────────────────────────
 const tenantHasPin = async (req, res) => {
   try {
     const tenant = await prisma.tenant.findUnique({
@@ -375,7 +421,7 @@ const tenantHasPin = async (req, res) => {
   }
 };
 
-// ─── MEMBRE : Définir/Modifier le PIN ─────────────────────────────────────
+// ─── MEMBRE : PIN ─────────────────────────────────────────────────────────
 const userSetPin = async (req, res) => {
   try {
     const { pin } = req.body;
@@ -398,7 +444,6 @@ const userSetPin = async (req, res) => {
   }
 };
 
-// ─── MEMBRE : Vérifier le PIN ──────────────────────────────────────────────
 const userVerifyPin = async (req, res) => {
   try {
     const { pin } = req.body;
@@ -424,7 +469,6 @@ const userVerifyPin = async (req, res) => {
   }
 };
 
-// ─── MEMBRE : Vérifier si PIN existe ──────────────────────────────────────
 const userHasPin = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({

@@ -7,6 +7,7 @@ const { authenticateTenant, authenticateUser } = require('../middleware/auth');
 const groupCtrl = require('../controllers/groupController');
 const memberCtrl = require('../controllers/memberController');
 const contribCtrl = require('../controllers/contributionController');
+const activityCtrl = require('../controllers/activityController');
 
 const groupValidators = [
   body('name').notEmpty().withMessage('Nom du groupe requis'),
@@ -61,5 +62,11 @@ router.patch('/contributions/:id/late', authenticateTenant, contribCtrl.markCont
 router.get('/member/my-groups', authenticateUser, groupCtrl.getMemberGroups);
 router.get('/:groupId/member/turns', authenticateUser, memberCtrl.getMemberTurns);
 router.get('/:groupId/member/contributions', authenticateUser, contribCtrl.getMemberContributions);
+
+
+
+// Ajouter ces routes
+router.get('/:groupId/activity', authenticateTenant, activityCtrl.getGroupActivity);
+router.get('/dashboard/summary', authenticateTenant, activityCtrl.getGerantDashboard);
 
 module.exports = router;
