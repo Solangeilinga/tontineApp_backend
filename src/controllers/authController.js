@@ -309,6 +309,135 @@ const updateTenantProfile = async (req, res) => {
   }
 };
 
+
+const bcrypt = require('bcryptjs');
+
+// ─── GÉRANT : Définir/Modifier le PIN ─────────────────────────────────────
+const tenantSetPin = async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      return error(res, 'Le PIN doit être 4 chiffres', 400);
+    }
+
+    const pinHash = await bcrypt.hash(pin, 10);
+
+    await prisma.tenant.update({
+      where: { id: req.tenant.id },
+      data: { pinHash },
+    });
+
+    return success(res, null, 'PIN défini avec succès');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── GÉRANT : Vérifier le PIN ──────────────────────────────────────────────
+const tenantVerifyPin = async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenant.id },
+    });
+
+    if (!tenant.pinHash) {
+      return error(res, 'Aucun PIN défini', 404);
+    }
+
+    const isValid = await bcrypt.compare(pin, tenant.pinHash);
+
+    if (!isValid) {
+      return error(res, 'PIN incorrect', 401);
+    }
+
+    return success(res, null, 'PIN valide');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── GÉRANT : Vérifier si PIN existe ──────────────────────────────────────
+const tenantHasPin = async (req, res) => {
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenant.id },
+    });
+
+    return success(res, { hasPin: !!tenant.pinHash });
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Définir/Modifier le PIN ─────────────────────────────────────
+const userSetPin = async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      return error(res, 'Le PIN doit être 4 chiffres', 400);
+    }
+
+    const pinHash = await bcrypt.hash(pin, 10);
+
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { pinHash },
+    });
+
+    return success(res, null, 'PIN défini avec succès');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Vérifier le PIN ──────────────────────────────────────────────
+const userVerifyPin = async (req, res) => {
+  try {
+    const { pin } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+
+    if (!user.pinHash) {
+      return error(res, 'Aucun PIN défini', 404);
+    }
+
+    const isValid = await bcrypt.compare(pin, user.pinHash);
+
+    if (!isValid) {
+      return error(res, 'PIN incorrect', 401);
+    }
+
+    return success(res, null, 'PIN valide');
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Vérifier si PIN existe ──────────────────────────────────────
+const userHasPin = async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+
+    return success(res, { hasPin: !!user.pinHash });
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 module.exports = {
   tenantRequestOTP,
   tenantVerifyAndRegister,
@@ -319,4 +448,10 @@ module.exports = {
   memberLoginRequestOTP,
   memberLoginVerify,
   updateTenantProfile,
+  tenantSetPin,
+  tenantVerifyPin,
+  tenantHasPin,
+  userSetPin,
+  userVerifyPin,
+  userHasPin,
 };
