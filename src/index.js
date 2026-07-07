@@ -13,14 +13,22 @@ const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 
-// ── Trust proxy (obligatoire sur Render)
+// ── Trust proxy
 app.set('trust proxy', 1);
 
-// ── Sécurité & parsing
+// ── CORS — restreindre en production
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? ['https://matontine.app'] // ton domaine
+  : ['*'];
+
 app.use(helmet());
-app.use(cors({ origin: '*' }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json({ limit: '10kb' })); // Limite taille requête
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(generalLimiter);
 
 // ── Routes
@@ -32,9 +40,8 @@ app.use('/api/notifications', notificationRoutes);
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '1.1.0',
+    version: '1.0.0',
     app: 'MaTontine API',
-    env: process.env.NODE_ENV || 'development',
   });
 });
 
@@ -45,7 +52,7 @@ app.use((req, res) => {
 
 // ── Erreur globale
 app.use((err, req, res, next) => {
-  console.error('💥 Erreur non gérée:', err);
+  console.error('💥 Erreur non gérée:', err.message);
   res.status(500).json({ success: false, message: 'Erreur serveur interne' });
 });
 
@@ -54,14 +61,10 @@ app.listen(PORT, () => {
   console.log(`🚀 MaTontine API démarrée sur le port ${PORT}`);
   console.log(`   ENV: ${process.env.NODE_ENV || 'development'}`);
 
-  // ── Initialiser Firebase (si variables configurées)
   if (process.env.FIREBASE_PROJECT_ID) {
     initFirebase();
-  } else {
-    console.log('⚠️  Firebase non configuré — push notifications désactivées');
   }
 
-  // ── Rappels SMS quotidiens
   scheduleDailyReminders();
 });
 
