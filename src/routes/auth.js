@@ -17,7 +17,7 @@ const otpValidator = body('otp')
 
 const nameValidator = body('name')
   .notEmpty().withMessage('Nom requis')
-  .isLength({ min: 2 }).withMessage('Le nom doit avoir au moins 2 caractères');
+  .isLength({ min: 2, max: 100 }).withMessage('Le nom doit avoir entre 2 et 100 caractères');
 
 const pinValidator = body('pin')
   .notEmpty().withMessage('PIN requis')
@@ -44,7 +44,7 @@ router.post('/tenant/login/verify',
   ctrl.tenantLoginVerify
 );
 
-// ── GÉRANT — PIN
+// ── GÉRANT — PIN (avec token)
 router.get('/tenant/pin/status', authenticateTenant, ctrl.tenantHasPin);
 router.post('/tenant/pin/set',
   authenticateTenant, [pinValidator], validate,
@@ -53,6 +53,13 @@ router.post('/tenant/pin/set',
 router.post('/tenant/pin/verify',
   authenticateTenant, [pinValidator], validate,
   ctrl.tenantVerifyPin
+);
+
+// ── GÉRANT — PIN (session verrouillée — sans token)
+router.post('/tenant/pin/verify-locked',
+  otpLimiter,
+  [phoneValidator, pinValidator], validate,
+  ctrl.tenantVerifyPinLocked
 );
 
 // ── GÉRANT — Profil
@@ -83,7 +90,7 @@ router.post('/member/login/verify',
   ctrl.memberLoginVerify
 );
 
-// ── MEMBRE — PIN
+// ── MEMBRE — PIN (avec token)
 router.get('/member/pin/status', authenticateUser, ctrl.userHasPin);
 router.post('/member/pin/set',
   authenticateUser, [pinValidator], validate,
@@ -92,6 +99,13 @@ router.post('/member/pin/set',
 router.post('/member/pin/verify',
   authenticateUser, [pinValidator], validate,
   ctrl.userVerifyPin
+);
+
+// ── MEMBRE — PIN (session verrouillée — sans token)
+router.post('/member/pin/verify-locked',
+  otpLimiter,
+  [phoneValidator, pinValidator], validate,
+  ctrl.userVerifyPinLocked
 );
 
 module.exports = router;

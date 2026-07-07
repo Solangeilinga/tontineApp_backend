@@ -19,6 +19,7 @@ const groupValidators = [
 // Groupes
 router.post('/', authenticateTenant, groupValidators, validate, groupCtrl.createGroup);
 router.get('/', authenticateTenant, groupCtrl.getGroups);
+router.get('/dashboard/summary', authenticateTenant, activityCtrl.getGerantDashboard);
 router.get('/:id', authenticateTenant, groupCtrl.getGroup);
 router.put('/:id', authenticateTenant, validate, groupCtrl.updateGroup);
 router.patch('/:id/archive', authenticateTenant, groupCtrl.archiveGroup);
@@ -26,6 +27,9 @@ router.patch('/:id/unarchive', authenticateTenant, groupCtrl.unarchiveGroup);
 
 // Récap cycle
 router.get('/:groupId/recap', authenticateTenant, groupCtrl.getCycleRecap);
+
+// Activité
+router.get('/:groupId/activity', authenticateTenant, activityCtrl.getGroupActivity);
 
 // Membres
 router.get('/:groupId/members', authenticateTenant, memberCtrl.getMembers);
@@ -58,15 +62,21 @@ router.post('/:groupId/contributions/cycle',
 router.patch('/contributions/:id/received', authenticateTenant, contribCtrl.markContributionReceived);
 router.patch('/contributions/:id/late', authenticateTenant, contribCtrl.markContributionLate);
 
+// Tours
+router.get('/:groupId/turns', authenticateTenant, contribCtrl.getGroupTurns);
+router.post('/:groupId/turns/received',
+  authenticateTenant,
+  [
+    body('userId').notEmpty().withMessage('userId requis'),
+    body('turnNumber').isInt({ min: 1 }).withMessage('turnNumber invalide'),
+  ],
+  validate,
+  contribCtrl.markTurnReceived
+);
+
 // ─── ROUTES MEMBRE ────────────────────────────────────────────────────────
 router.get('/member/my-groups', authenticateUser, groupCtrl.getMemberGroups);
 router.get('/:groupId/member/turns', authenticateUser, memberCtrl.getMemberTurns);
 router.get('/:groupId/member/contributions', authenticateUser, contribCtrl.getMemberContributions);
-
-
-
-// Ajouter ces routes
-router.get('/:groupId/activity', authenticateTenant, activityCtrl.getGroupActivity);
-router.get('/dashboard/summary', authenticateTenant, activityCtrl.getGerantDashboard);
 
 module.exports = router;
