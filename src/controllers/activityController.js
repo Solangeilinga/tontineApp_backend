@@ -5,14 +5,12 @@ const { success, error } = require('../utils/response');
 const getGroupActivity = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const tenantId = req.tenant?.id || req.user?.tenantId;
 
     const group = await prisma.group.findFirst({
       where: { id: groupId },
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    // Récupérer les dernières cotisations modifiées
     const contributions = await prisma.contribution.findMany({
       where: { groupId },
       include: { user: true },
@@ -20,7 +18,6 @@ const getGroupActivity = async (req, res) => {
       take: 10,
     });
 
-    // Récupérer les derniers membres ajoutés
     const members = await prisma.groupMember.findMany({
       where: { groupId },
       include: { user: true },
@@ -28,7 +25,6 @@ const getGroupActivity = async (req, res) => {
       take: 5,
     });
 
-    // Construire le fil d'activité
     const activities = [];
 
     for (const c of contributions) {
@@ -36,7 +32,6 @@ const getGroupActivity = async (req, res) => {
         activities.push({
           id: `contrib-received-${c.id}`,
           type: 'CONTRIBUTION_RECEIVED',
-          emoji: '✅',
           text: `${c.user.name} a payé sa cotisation`,
           date: c.updatedAt,
           userId: c.userId,
@@ -45,16 +40,14 @@ const getGroupActivity = async (req, res) => {
         activities.push({
           id: `contrib-late-${c.id}`,
           type: 'CONTRIBUTION_LATE',
-          emoji: '⏰',
           text: `${c.user.name} est en retard`,
           date: c.updatedAt,
           userId: c.userId,
         });
-      } else if (c.status === 'PENDING') {
+      } else {
         activities.push({
           id: `contrib-pending-${c.id}`,
           type: 'CONTRIBUTION_PENDING',
-          emoji: '🕐',
           text: `Cotisation en attente — ${c.user.name}`,
           date: c.createdAt,
           userId: c.userId,
@@ -66,26 +59,21 @@ const getGroupActivity = async (req, res) => {
       activities.push({
         id: `member-joined-${m.id}`,
         type: 'MEMBER_JOINED',
-        emoji: '👋',
         text: `${m.user.name} a rejoint le groupe`,
         date: m.joinedAt,
         userId: m.userId,
       });
     }
 
-    // Trier par date décroissante
-    activities.sort((a, b) =>
-      new Date(b.date) - new Date(a.date)
-    );
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return success(res, activities.slice(0, 10));
   } catch (err) {
-    console.error(err);
+    console.error('getGroupActivity error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
 
-// Dashboard gérant — résumé de tous les groupes
 const getGerantDashboard = async (req, res) => {
   try {
     const tenantId = req.tenant.id;
@@ -113,7 +101,6 @@ const getGerantDashboard = async (req, res) => {
       const late = group.contributions.filter(c => c.status === 'LATE');
       const pending = group.contributions.filter(c => c.status === 'PENDING');
 
-      // Alertes retards
       if (late.length > 0) {
         dashboard.alerts.push({
           type: 'LATE',
@@ -125,13 +112,9 @@ const getGerantDashboard = async (req, res) => {
         });
       }
 
-      // Cotisations dues cette semaine
       const nextWeek = new Date();
       nextWeek.setDate(nextWeek.getDate() + 7);
-
-      const dueSoon = pending.filter(c =>
-        new Date(c.dueDate) <= nextWeek
-      );
+      const dueSoon = pending.filter(c => new Date(c.dueDate) <= nextWeek);
 
       if (dueSoon.length > 0) {
         dashboard.upcomingDue.push({
@@ -147,7 +130,7 @@ const getGerantDashboard = async (req, res) => {
 
     return success(res, dashboard);
   } catch (err) {
-    console.error(err);
+    console.error('getGerantDashboard error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

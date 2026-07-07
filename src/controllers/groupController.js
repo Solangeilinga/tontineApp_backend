@@ -1,14 +1,32 @@
 // src/controllers/groupController.js
 const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
-const { generateInviteCode } = require('../utils/otp');
-const { createNotification } = require('../services/notificationService');
+
+// ── Générer un code d'invitation unique garanti
+const generateUniqueInviteCode = async () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code;
+  let exists = true;
+
+  while (exists) {
+    code = Array.from({ length: 8 }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
+    ).join('');
+
+    const existing = await prisma.group.findUnique({
+      where: { inviteCode: code },
+    });
+    exists = !!existing;
+  }
+
+  return code;
+};
 
 const createGroup = async (req, res) => {
   try {
     const { name, type, frequency, amount, currency, description, maxMembers } = req.body;
     const tenantId = req.tenant.id;
-    const inviteCode = generateInviteCode();
+    const inviteCode = await generateUniqueInviteCode();
 
     const group = await prisma.group.create({
       data: {
@@ -26,7 +44,7 @@ const createGroup = async (req, res) => {
 
     return created(res, group, 'Groupe créé avec succès');
   } catch (err) {
-    console.error(err);
+    console.error('createGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -46,7 +64,7 @@ const getGroups = async (req, res) => {
 
     return success(res, enriched);
   } catch (err) {
-    console.error(err);
+    console.error('getGroups error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -77,12 +95,11 @@ const getGroup = async (req, res) => {
       isFull: group.maxMembers !== null && group._count.groupMembers >= group.maxMembers,
     });
   } catch (err) {
-    console.error(err);
+    console.error('getGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
 
-// ─── MODIFIER UN GROUPE ────────────────────────────────────────────────────
 const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -109,12 +126,11 @@ const updateGroup = async (req, res) => {
 
     return success(res, updated, 'Groupe mis à jour');
   } catch (err) {
-    console.error(err);
+    console.error('updateGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
 
-// ─── ARCHIVER UN GROUPE ────────────────────────────────────────────────────
 const archiveGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -126,12 +142,11 @@ const archiveGroup = async (req, res) => {
     await prisma.group.update({ where: { id }, data: { isActive: false } });
     return success(res, null, 'Groupe archivé');
   } catch (err) {
-    console.error(err);
+    console.error('archiveGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
 
-// ─── DÉSARCHIVER UN GROUPE ─────────────────────────────────────────────────
 const unarchiveGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -143,7 +158,7 @@ const unarchiveGroup = async (req, res) => {
     await prisma.group.update({ where: { id }, data: { isActive: true } });
     return success(res, null, 'Groupe réactivé');
   } catch (err) {
-    console.error(err);
+    console.error('unarchiveGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -170,7 +185,7 @@ const getMemberGroups = async (req, res) => {
 
     return success(res, groups);
   } catch (err) {
-    console.error(err);
+    console.error('getMemberGroups error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -197,7 +212,12 @@ const getCycleRecap = async (req, res) => {
     const totalReceived = received.length * group.amount;
 
     return success(res, {
-      group: { id: group.id, name: group.name, amount: group.amount, currency: group.currency },
+      group: {
+        id: group.id,
+        name: group.name,
+        amount: group.amount,
+        currency: group.currency,
+      },
       recap: {
         totalMembers: contributions.length,
         totalExpected,
@@ -213,7 +233,7 @@ const getCycleRecap = async (req, res) => {
       contributions,
     });
   } catch (err) {
-    console.error(err);
+    console.error('getCycleRecap error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
