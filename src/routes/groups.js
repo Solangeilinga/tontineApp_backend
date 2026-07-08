@@ -14,21 +14,24 @@ const groupValidators = [
   body('amount').isFloat({ min: 0 }).withMessage('Montant invalide'),
 ];
 
-// ─── ROUTES GÉRANT ────────────────────────────────────────────────────────
+// ─── ROUTES FIXES EN PREMIER (avant les routes avec :id) ──────────────────
+router.get('/dashboard/summary', authenticateTenant, activityCtrl.getGerantDashboard);
+router.get('/member/my-groups', authenticateUser, groupCtrl.getMemberGroups);
 
-// Groupes
+// Cotisations — routes fixes avant :groupId
+router.patch('/contributions/:id/received', authenticateTenant, contribCtrl.markContributionReceived);
+router.patch('/contributions/:id/late', authenticateTenant, contribCtrl.markContributionLate);
+
+// ─── ROUTES GÉRANT avec :id ────────────────────────────────────────────────
 router.post('/', authenticateTenant, groupValidators, validate, groupCtrl.createGroup);
 router.get('/', authenticateTenant, groupCtrl.getGroups);
-router.get('/dashboard/summary', authenticateTenant, activityCtrl.getGerantDashboard);
 router.get('/:id', authenticateTenant, groupCtrl.getGroup);
 router.put('/:id', authenticateTenant, validate, groupCtrl.updateGroup);
 router.patch('/:id/archive', authenticateTenant, groupCtrl.archiveGroup);
 router.patch('/:id/unarchive', authenticateTenant, groupCtrl.unarchiveGroup);
 
-// Récap cycle
+// ─── ROUTES avec :groupId ──────────────────────────────────────────────────
 router.get('/:groupId/recap', authenticateTenant, groupCtrl.getCycleRecap);
-
-// Activité
 router.get('/:groupId/activity', authenticateTenant, activityCtrl.getGroupActivity);
 
 // Membres
@@ -42,14 +45,14 @@ router.post('/:groupId/members',
   validate,
   memberCtrl.addMember
 );
-router.put('/:groupId/members/:userId', authenticateTenant, memberCtrl.updateMember);
-router.delete('/:groupId/members/:userId', authenticateTenant, memberCtrl.removeMember);
 router.put('/:groupId/members/turn-order',
   authenticateTenant,
   body('orders').isArray().withMessage('Format invalide'),
   validate,
   memberCtrl.updateTurnOrder
 );
+router.put('/:groupId/members/:userId', authenticateTenant, memberCtrl.updateMember);
+router.delete('/:groupId/members/:userId', authenticateTenant, memberCtrl.removeMember);
 
 // Cotisations
 router.get('/:groupId/contributions', authenticateTenant, contribCtrl.getContributions);
@@ -59,8 +62,6 @@ router.post('/:groupId/contributions/cycle',
   validate,
   contribCtrl.createCycleContributions
 );
-router.patch('/contributions/:id/received', authenticateTenant, contribCtrl.markContributionReceived);
-router.patch('/contributions/:id/late', authenticateTenant, contribCtrl.markContributionLate);
 
 // Tours
 router.get('/:groupId/turns', authenticateTenant, contribCtrl.getGroupTurns);
@@ -75,7 +76,6 @@ router.post('/:groupId/turns/received',
 );
 
 // ─── ROUTES MEMBRE ────────────────────────────────────────────────────────
-router.get('/member/my-groups', authenticateUser, groupCtrl.getMemberGroups);
 router.get('/:groupId/member/turns', authenticateUser, memberCtrl.getMemberTurns);
 router.get('/:groupId/member/contributions', authenticateUser, contribCtrl.getMemberContributions);
 
