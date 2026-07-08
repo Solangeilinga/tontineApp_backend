@@ -203,8 +203,6 @@ const notifyTurnReceived = async ({ tenantId, group, user, turnNumber }) => {
       `MaTontine - Felicitations ! Vous avez recu votre mise du groupe "${group.name}" `
       + `(Tour N°${turnNumber}). Montant : ${group.amount} ${group.currency}.`;
 
-    await sendSMS(user.phone, message);
-
     if (user.fcmToken) {
       await sendPushNotification({
         token: user.fcmToken,
