@@ -8,6 +8,8 @@ const groupCtrl = require('../controllers/groupController');
 const memberCtrl = require('../controllers/memberController');
 const contribCtrl = require('../controllers/contributionController');
 const activityCtrl = require('../controllers/activityController');
+const cycleCtrl = require('../controllers/cycleController');
+const auditCtrl = require('../controllers/auditController');
 
 const groupValidators = [
   body('name').notEmpty().withMessage('Nom du groupe requis'),
@@ -74,6 +76,13 @@ router.post('/:groupId/turns/received',
   validate,
   contribCtrl.markTurnReceived
 );
+
+// Cycles (tours de rotation)
+router.get('/:groupId/cycles', authenticateTenant, cycleCtrl.getCycleHistory);
+router.post('/:groupId/cycles/close', authenticateTenant, cycleCtrl.closeCurrentCycle);
+
+// Journal d'audit
+router.get('/:groupId/audit-log', authenticateTenant, auditCtrl.getGroupAuditLog);
 
 // ─── ROUTES MEMBRE ────────────────────────────────────────────────────────
 router.get('/:groupId/member/turns', authenticateUser, memberCtrl.getMemberTurns);

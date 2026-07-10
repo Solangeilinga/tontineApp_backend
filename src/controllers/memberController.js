@@ -2,6 +2,8 @@
 const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
 const { createNotification } = require('../services/notificationService');
+const { getActiveCycle } = require('../services/cycleService');
+const { logAction } = require('../services/auditService');
 
 const getMembers = async (req, res) => {
   try {
@@ -74,6 +76,18 @@ const addMember = async (req, res) => {
       include: { user: true },
     });
 
+    await logAction({
+      tenantId,
+      groupId,
+      actorType: 'TENANT',
+      actorId: tenantId,
+      actorName: req.tenant.name,
+      action: 'MEMBER_ADDED',
+      targetType: 'GroupMember',
+      targetId: member.id,
+      metadata: { memberName: member.user.name, phone: normalizedPhone, orderTurn: member.orderTurn },
+    });
+
     return created(res, member, 'Membre ajouté avec succès');
   } catch (err) {
     console.error(err);
@@ -109,6 +123,18 @@ const updateMember = async (req, res) => {
       data: updateData,
     });
 
+    await logAction({
+      tenantId,
+      groupId,
+      actorType: 'TENANT',
+      actorId: tenantId,
+      actorName: req.tenant.name,
+      action: 'MEMBER_UPDATED',
+      targetType: 'User',
+      targetId: userId,
+      metadata: { changes: updateData },
+    });
+
     return success(res, updatedUser, 'Membre modifié avec succès');
   } catch (err) {
     console.error(err);
@@ -124,8 +150,25 @@ const removeMember = async (req, res) => {
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      include: { user: true },
+    });
+
     await prisma.groupMember.delete({
       where: { groupId_userId: { groupId, userId } },
+    });
+
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'MEMBER_REMOVED',
+      targetType: 'User',
+      targetId: userId,
+      metadata: { memberName: membership?.user?.name ?? null },
     });
 
     return success(res, null, 'Membre retiré du groupe');
@@ -154,6 +197,18 @@ const updateTurnOrder = async (req, res) => {
       )
     );
 
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'TURN_ORDER_UPDATED',
+      targetType: 'Group',
+      targetId: groupId,
+      metadata: { orders },
+    });
+
     return success(res, null, 'Ordre des tours mis à jour');
   } catch (err) {
     console.error(err);
@@ -178,11 +233,15 @@ const getMemberTurns = async (req, res) => {
       orderBy: { orderTurn: 'asc' },
     });
 
-    const turns = await prisma.turn.findMany({
-      where: { groupId },
-      include: { user: true },
-      orderBy: { turnNumber: 'asc' },
-    });
+    const activeCycle = await getActiveCycle(groupId);
+
+    const turns = activeCycle
+      ? await prisma.turn.findMany({
+          where: { cycleId: activeCycle.id },
+          include: { user: true },
+          orderBy: { turnNumber: 'asc' },
+        })
+      : [];
 
     // ── Infos groupe pour calculer les dates estimées
     const group = await prisma.group.findUnique({
@@ -193,6 +252,7 @@ const getMemberTurns = async (req, res) => {
       myTurn: membership.orderTurn,
       members,
       turns,
+      cycleNumber: activeCycle?.cycleNumber ?? null,
       group: {
         name: group.name,
         frequency: group.frequency,

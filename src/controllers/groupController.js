@@ -1,6 +1,8 @@
 // src/controllers/groupController.js
 const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
+const { getActiveCycle } = require('../services/cycleService');
+const { logAction } = require('../services/auditService');
 
 // ── Générer un code d'invitation unique garanti
 const generateUniqueInviteCode = async () => {
@@ -40,6 +42,18 @@ const createGroup = async (req, res) => {
         inviteCode,
         maxMembers: maxMembers ? parseInt(maxMembers) : null,
       },
+    });
+
+    await logAction({
+      tenantId,
+      groupId: group.id,
+      actorType: 'TENANT',
+      actorId: tenantId,
+      actorName: req.tenant.name,
+      action: 'GROUP_CREATED',
+      targetType: 'Group',
+      targetId: group.id,
+      metadata: { name: group.name, amount: group.amount, currency: group.currency },
     });
 
     return created(res, group, 'Groupe créé avec succès');
@@ -124,6 +138,18 @@ const updateGroup = async (req, res) => {
       },
     });
 
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId: id,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'GROUP_UPDATED',
+      targetType: 'Group',
+      targetId: id,
+      metadata: { name, frequency, amount, currency, maxMembers },
+    });
+
     return success(res, updated, 'Groupe mis à jour');
   } catch (err) {
     console.error('updateGroup error:', err.message);
@@ -140,6 +166,18 @@ const archiveGroup = async (req, res) => {
     if (!group) return error(res, 'Groupe introuvable', 404);
 
     await prisma.group.update({ where: { id }, data: { isActive: false } });
+
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId: id,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'GROUP_ARCHIVED',
+      targetType: 'Group',
+      targetId: id,
+    });
+
     return success(res, null, 'Groupe archivé');
   } catch (err) {
     console.error('archiveGroup error:', err.message);
@@ -156,6 +194,18 @@ const unarchiveGroup = async (req, res) => {
     if (!group) return error(res, 'Groupe introuvable', 404);
 
     await prisma.group.update({ where: { id }, data: { isActive: true } });
+
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId: id,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'GROUP_UNARCHIVED',
+      targetType: 'Group',
+      targetId: id,
+    });
+
     return success(res, null, 'Groupe réactivé');
   } catch (err) {
     console.error('unarchiveGroup error:', err.message);
@@ -199,8 +249,24 @@ const getCycleRecap = async (req, res) => {
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
+    const activeCycle = await getActiveCycle(groupId);
+
+    if (!activeCycle) {
+      return success(res, {
+        group: {
+          id: group.id,
+          name: group.name,
+          amount: group.amount,
+          currency: group.currency,
+        },
+        cycleNumber: null,
+        recap: null,
+        contributions: [],
+      });
+    }
+
     const contributions = await prisma.contribution.findMany({
-      where: { groupId },
+      where: { cycleId: activeCycle.id },
       include: { user: true },
       orderBy: { dueDate: 'desc' },
     });
@@ -218,6 +284,7 @@ const getCycleRecap = async (req, res) => {
         amount: group.amount,
         currency: group.currency,
       },
+      cycleNumber: activeCycle.cycleNumber,
       recap: {
         totalMembers: contributions.length,
         totalExpected,

@@ -72,6 +72,7 @@ model Group {
   groupMembers  GroupMember[]
   contributions Contribution[]
   turns         Turn[]
+  cycles        Cycle[]
 
   @@map("groups")
 }
@@ -93,11 +94,34 @@ model GroupMember {
   @@map("group_members")
 }
 
+// ─── CYCLES (Tours de rotation complets) ──────────────────────────────────
+// Un cycle = un tour de rotation complet du groupe : chaque membre reçoit
+// sa mise une fois (dans l'ordre de orderTurn). Une fois tous les membres
+// servis, le gérant clôture le cycle et un nouveau cycle démarre à zéro.
+model Cycle {
+  id          String      @id @default(uuid())
+  groupId     String      @map("group_id")
+  cycleNumber Int         @map("cycle_number")
+  status      CycleStatus @default(ACTIVE)
+  startDate   DateTime    @default(now()) @map("start_date")
+  endDate     DateTime?   @map("end_date")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  group         Group          @relation(fields: [groupId], references: [id])
+  contributions Contribution[]
+  turns         Turn[]
+
+  @@unique([groupId, cycleNumber])
+  @@map("cycles")
+}
+
 // ─── CONTRIBUTIONS ─────────────────────────────────────────────────────────
 model Contribution {
   id        String             @id @default(uuid())
   groupId   String             @map("group_id")
   userId    String             @map("user_id")
+  cycleId   String             @map("cycle_id")
   status    ContributionStatus @default(PENDING)
   amount    Float
   dueDate   DateTime           @map("due_date")
@@ -109,6 +133,7 @@ model Contribution {
   // Relations
   group Group @relation(fields: [groupId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
+  cycle Cycle @relation(fields: [cycleId], references: [id])
 
   @@map("contributions")
 }
@@ -118,6 +143,7 @@ model Turn {
   id            String     @id @default(uuid())
   groupId       String     @map("group_id")
   userId        String     @map("user_id")
+  cycleId       String     @map("cycle_id")
   turnNumber    Int        @map("turn_number")
   scheduledDate DateTime   @map("scheduled_date")
   status        TurnStatus @default(UPCOMING)
@@ -126,8 +152,9 @@ model Turn {
   // Relations
   group Group @relation(fields: [groupId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
+  cycle Cycle @relation(fields: [cycleId], references: [id])
 
-  @@unique([groupId, turnNumber])
+  @@unique([cycleId, turnNumber])
   @@map("turns")
 }
 
@@ -148,6 +175,29 @@ model Notification {
   user   User   @relation(fields: [userId], references: [id])
 
   @@map("notifications")
+}
+
+// ─── AUDIT LOG ─────────────────────────────────────────────────────────────
+// Historique immuable des actions effectuées dans un groupe. Volontairement
+// SANS relation de clé étrangère (autre que tenantId pour le scoping) afin
+// que l'historique survive même si le groupe, l'utilisateur ou l'entité
+// concernée est supprimé par la suite — un journal d'audit doit rester
+// consultable indépendamment du cycle de vie des données qu'il décrit.
+model AuditLog {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  groupId    String?   @map("group_id")
+  actorType  ActorType @map("actor_type")
+  actorId    String    @map("actor_id")
+  actorName  String    @map("actor_name")
+  action     String
+  targetType String?   @map("target_type")
+  targetId   String?   @map("target_id")
+  metadata   Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, groupId])
+  @@map("audit_logs")
 }
 
 // ─── ENUMS ─────────────────────────────────────────────────────────────────
@@ -175,6 +225,16 @@ enum TurnStatus {
   UPCOMING
   CURRENT
   DONE
+}
+
+enum CycleStatus {
+  ACTIVE
+  COMPLETED
+}
+
+enum ActorType {
+  TENANT
+  USER
 }
 
 enum NotificationType {
