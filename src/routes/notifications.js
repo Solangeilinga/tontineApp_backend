@@ -8,5 +8,6 @@ router.get('/', authenticateUser, ctrl.getNotifications);
 router.patch('/:id/read', authenticateUser, ctrl.markAsRead);
 router.patch('/read-all', authenticateUser, ctrl.markAllAsRead);
 router.put('/fcm-token', authenticateUser, ctrl.updateFcmToken);
+router.delete('/:id', authenticateUser, ctrl.deleteNotification);
 
 module.exports = router;

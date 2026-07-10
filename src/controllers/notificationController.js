@@ -11,12 +11,12 @@ const getNotifications = async (req, res) => {
 
     const [notifications, total] = await Promise.all([
       prisma.notification.findMany({
-        where: { userId },
+        where: { userId, isDeleted: false },
         orderBy: { sentAt: 'desc' },
         skip,
         take: parseInt(limit),
       }),
-      prisma.notification.count({ where: { userId } }),
+      prisma.notification.count({ where: { userId, isDeleted: false } }),
     ]);
 
     return success(res, {
@@ -28,6 +28,28 @@ const getNotifications = async (req, res) => {
         totalPages: Math.ceil(total / parseInt(limit)),
       },
     });
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── SUPPRIMER UNE NOTIFICATION (suppression douce) ───────────────────────
+// La notification disparaît de la liste du membre mais reste en base.
+const deleteNotification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const notif = await prisma.notification.findFirst({ where: { id, userId } });
+    if (!notif) return error(res, 'Notification introuvable', 404);
+
+    await prisma.notification.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+
+    return success(res, null, 'Notification supprimée');
   } catch (err) {
     console.error(err);
     return error(res, 'Erreur serveur', 500);
@@ -95,4 +117,4 @@ const updateFcmToken = async (req, res) => {
   }
 };
 
-module.exports = { getNotifications, markAsRead, markAllAsRead, updateFcmToken };
+module.exports = { getNotifications, markAsRead, markAllAsRead, updateFcmToken, deleteNotification };

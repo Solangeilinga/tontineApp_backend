@@ -172,6 +172,7 @@ model Notification {
   message  String
   data     Json?
   isRead   Boolean          @default(false) @map("is_read")
+  isDeleted Boolean         @default(false) @map("is_deleted")
   sentAt   DateTime         @default(now()) @map("sent_at")
 
   // Relations
@@ -188,17 +189,21 @@ model Notification {
 // concernée est supprimé par la suite — un journal d'audit doit rester
 // consultable indépendamment du cycle de vie des données qu'il décrit.
 model AuditLog {
-  id         String    @id @default(uuid())
-  tenantId   String    @map("tenant_id")
-  groupId    String?   @map("group_id")
-  actorType  ActorType @map("actor_type")
-  actorId    String    @map("actor_id")
-  actorName  String    @map("actor_name")
-  action     String
-  targetType String?   @map("target_type")
-  targetId   String?   @map("target_id")
-  metadata   Json?
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  groupId     String?   @map("group_id")
+  actorType   ActorType @map("actor_type")
+  actorId     String    @map("actor_id")
+  actorName   String    @map("actor_name")
+  action      String
+  targetType  String?   @map("target_type")
+  targetId    String?   @map("target_id")
+  metadata    Json?
+  // Masque cette entrée dans le fil "Activités" (vue simplifiée et
+  // supprimable). N'affecte JAMAIS le "Journal d'audit" complet, qui reste
+  // toujours intégral et non-supprimable — c'est la source de preuve légale.
+  isDismissed Boolean   @default(false) @map("is_dismissed")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([tenantId, groupId])
   @@map("audit_logs")

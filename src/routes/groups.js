@@ -37,6 +37,7 @@ router.patch('/:id/unarchive', authenticateTenant, groupCtrl.unarchiveGroup);
 // ─── ROUTES avec :groupId ──────────────────────────────────────────────────
 router.get('/:groupId/recap', authenticateTenant, groupCtrl.getCycleRecap);
 router.get('/:groupId/activity', authenticateTenant, activityCtrl.getGroupActivity);
+router.delete('/:groupId/activity/:id', authenticateTenant, activityCtrl.dismissActivity);
 
 // Membres
 router.get('/:groupId/members', authenticateTenant, memberCtrl.getMembers);

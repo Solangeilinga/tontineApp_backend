@@ -1,75 +1,59 @@
 // src/controllers/activityController.js
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
+const { formatActivity } = require('../utils/activityFormatter');
 
+// ─── FIL D'ACTIVITÉS (vue simplifiée et supprimable) ──────────────────────
+// Basé sur le Journal d'audit, mais filtre les entrées masquées et ne montre
+// que les 30 plus récentes. Contrairement au Journal d'audit complet, une
+// activité peut être retirée de cette liste sans jamais toucher à
+// l'enregistrement d'audit sous-jacent (qui reste consultable en entier
+// via /audit-log).
 const getGroupActivity = async (req, res) => {
   try {
     const { groupId } = req.params;
+    const tenantId = req.tenant.id;
 
-    const group = await prisma.group.findFirst({
-      where: { id: groupId },
-    });
+    const group = await prisma.group.findFirst({ where: { id: groupId, tenantId } });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    const contributions = await prisma.contribution.findMany({
-      where: { groupId },
-      include: { user: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 10,
+    const logs = await prisma.auditLog.findMany({
+      where: { groupId, tenantId, isDismissed: false },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
     });
 
-    const members = await prisma.groupMember.findMany({
-      where: { groupId },
-      include: { user: true },
-      orderBy: { joinedAt: 'desc' },
-      take: 5,
+    const activities = logs.map((log) => {
+      const { type, text } = formatActivity(log);
+      return { id: log.id, type, text, date: log.createdAt };
     });
 
-    const activities = [];
-
-    for (const c of contributions) {
-      if (c.status === 'RECEIVED') {
-        activities.push({
-          id: `contrib-received-${c.id}`,
-          type: 'CONTRIBUTION_RECEIVED',
-          text: `${c.user.name} a payé sa cotisation`,
-          date: c.updatedAt,
-          userId: c.userId,
-        });
-      } else if (c.status === 'LATE') {
-        activities.push({
-          id: `contrib-late-${c.id}`,
-          type: 'CONTRIBUTION_LATE',
-          text: `${c.user.name} est en retard`,
-          date: c.updatedAt,
-          userId: c.userId,
-        });
-      } else {
-        activities.push({
-          id: `contrib-pending-${c.id}`,
-          type: 'CONTRIBUTION_PENDING',
-          text: `Cotisation en attente — ${c.user.name}`,
-          date: c.createdAt,
-          userId: c.userId,
-        });
-      }
-    }
-
-    for (const m of members) {
-      activities.push({
-        id: `member-joined-${m.id}`,
-        type: 'MEMBER_JOINED',
-        text: `${m.user.name} a rejoint le groupe`,
-        date: m.joinedAt,
-        userId: m.userId,
-      });
-    }
-
-    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-    return success(res, activities.slice(0, 10));
+    return success(res, activities);
   } catch (err) {
     console.error('getGroupActivity error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MASQUER UNE ACTIVITÉ (suppression douce) ─────────────────────────────
+// Retire l'entrée du fil "Activités" uniquement. L'entrée reste en base et
+// continue d'apparaître intégralement dans le Journal d'audit.
+const dismissActivity = async (req, res) => {
+  try {
+    const { groupId, id } = req.params;
+    const tenantId = req.tenant.id;
+
+    const log = await prisma.auditLog.findFirst({ where: { id, groupId, tenantId } });
+    if (!log) return error(res, 'Activité introuvable', 404);
+
+    await prisma.auditLog.update({
+      where: { id },
+      data: { isDismissed: true },
+    });
+
+    return success(res, null, 'Activité supprimée de la liste');
+  } catch (err) {
+    console.error('dismissActivity error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -135,4 +119,4 @@ const getGerantDashboard = async (req, res) => {
   }
 };
 
-module.exports = { getGroupActivity, getGerantDashboard };
+module.exports = { getGroupActivity, dismissActivity, getGerantDashboard };
