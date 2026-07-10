@@ -26,7 +26,7 @@ const generateUniqueInviteCode = async () => {
 
 const createGroup = async (req, res) => {
   try {
-    const { name, type, frequency, amount, currency, description, maxMembers } = req.body;
+    const { name, type, frequencyValue, frequencyUnit, amount, currency, description, maxMembers } = req.body;
     const tenantId = req.tenant.id;
     const inviteCode = await generateUniqueInviteCode();
 
@@ -35,7 +35,8 @@ const createGroup = async (req, res) => {
         tenantId,
         name,
         type: type || 'MONEY',
-        frequency: frequency || 'OTHER',
+        frequencyValue: frequencyValue ? parseInt(frequencyValue) : 1,
+        frequencyUnit: frequencyUnit || 'MONTHS',
         amount: parseFloat(amount),
         currency: currency || 'XOF',
         description,
@@ -117,7 +118,7 @@ const getGroup = async (req, res) => {
 const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, frequency, amount, currency, description, maxMembers } = req.body;
+    const { name, frequencyValue, frequencyUnit, amount, currency, description, maxMembers } = req.body;
 
     const group = await prisma.group.findFirst({
       where: { id, tenantId: req.tenant.id },
@@ -128,7 +129,8 @@ const updateGroup = async (req, res) => {
       where: { id },
       data: {
         name,
-        frequency,
+        frequencyValue: frequencyValue !== undefined ? parseInt(frequencyValue) : undefined,
+        frequencyUnit,
         amount: amount ? parseFloat(amount) : undefined,
         currency,
         description,
@@ -147,7 +149,7 @@ const updateGroup = async (req, res) => {
       action: 'GROUP_UPDATED',
       targetType: 'Group',
       targetId: id,
-      metadata: { name, frequency, amount, currency, maxMembers },
+      metadata: { name, frequencyValue, frequencyUnit, amount, currency, maxMembers },
     });
 
     return success(res, updated, 'Groupe mis à jour');

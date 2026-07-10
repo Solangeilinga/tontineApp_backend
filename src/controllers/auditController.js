@@ -12,10 +12,11 @@ const ACTION_LABELS = {
   MEMBER_UPDATED: 'Membre modifié',
   MEMBER_REMOVED: 'Membre retiré',
   TURN_ORDER_UPDATED: 'Ordre des tours modifié',
-  CYCLE_CONTRIBUTIONS_CREATED: 'Cotisations créées',
+  CYCLE_STARTED: 'Cycle démarré',
   CONTRIBUTION_MARKED_RECEIVED: 'Cotisation marquée reçue',
   CONTRIBUTION_MARKED_LATE: 'Cotisation marquée en retard',
   TURN_MARKED_RECEIVED: 'Tour marqué comme reçu',
+  TURN_RESCHEDULED: 'Date de tour modifiée',
   CYCLE_CLOSED: 'Cycle clôturé',
 };
 

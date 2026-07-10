@@ -243,7 +243,13 @@ const getMemberTurns = async (req, res) => {
         })
       : [];
 
-    // ── Infos groupe pour calculer les dates estimées
+    const now = new Date();
+    const enrichedTurns = turns.map((t) => ({
+      ...t,
+      isLate: t.status !== 'DONE' && new Date(t.scheduledDate) < now,
+    }));
+
+    // ── Infos groupe (fréquence structurée, plus de texte libre à parser)
     const group = await prisma.group.findUnique({
       where: { id: groupId },
     });
@@ -251,11 +257,14 @@ const getMemberTurns = async (req, res) => {
     return success(res, {
       myTurn: membership.orderTurn,
       members,
-      turns,
+      turns: enrichedTurns,
       cycleNumber: activeCycle?.cycleNumber ?? null,
+      cycleStartDate: activeCycle?.startDate ?? null,
+      cycleDueDate: activeCycle?.dueDate ?? null,
       group: {
         name: group.name,
-        frequency: group.frequency,
+        frequencyValue: group.frequencyValue,
+        frequencyUnit: group.frequencyUnit,
         description: group.description,
         amount: group.amount,
         currency: group.currency,

@@ -14,6 +14,8 @@ const auditCtrl = require('../controllers/auditController');
 const groupValidators = [
   body('name').notEmpty().withMessage('Nom du groupe requis'),
   body('amount').isFloat({ min: 0 }).withMessage('Montant invalide'),
+  body('frequencyValue').optional().isInt({ min: 1 }).withMessage('Fréquence invalide'),
+  body('frequencyUnit').optional().isIn(['DAYS', 'WEEKS', 'MONTHS']).withMessage('Unité de fréquence invalide'),
 ];
 
 // ─── ROUTES FIXES EN PREMIER (avant les routes avec :id) ──────────────────
@@ -58,27 +60,32 @@ router.delete('/:groupId/members/:userId', authenticateTenant, memberCtrl.remove
 
 // Cotisations
 router.get('/:groupId/contributions', authenticateTenant, contribCtrl.getContributions);
-router.post('/:groupId/contributions/cycle',
-  authenticateTenant,
-  body('dueDate').isISO8601().withMessage('Date invalide'),
-  validate,
-  contribCtrl.createCycleContributions
-);
 
 // Tours
 router.get('/:groupId/turns', authenticateTenant, contribCtrl.getGroupTurns);
 router.post('/:groupId/turns/received',
   authenticateTenant,
   [
-    body('userId').notEmpty().withMessage('userId requis'),
     body('turnNumber').isInt({ min: 1 }).withMessage('turnNumber invalide'),
   ],
   validate,
   contribCtrl.markTurnReceived
 );
+router.patch('/:groupId/turns/:turnId/reschedule',
+  authenticateTenant,
+  body('scheduledDate').isISO8601().withMessage('Date invalide'),
+  validate,
+  cycleCtrl.rescheduleTurn
+);
 
 // Cycles (tours de rotation)
 router.get('/:groupId/cycles', authenticateTenant, cycleCtrl.getCycleHistory);
+router.post('/:groupId/cycles/start',
+  authenticateTenant,
+  body('startDate').isISO8601().withMessage('Date de début invalide'),
+  validate,
+  cycleCtrl.startCycle
+);
 router.post('/:groupId/cycles/close', authenticateTenant, cycleCtrl.closeCurrentCycle);
 
 // Journal d'audit

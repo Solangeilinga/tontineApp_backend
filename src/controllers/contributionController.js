@@ -1,84 +1,15 @@
 // src/controllers/contributionController.js
 const prisma = require('../config/database');
-const { success, error, created } = require('../utils/response');
+const { success, error } = require('../utils/response');
 const { notifyTurnReceived } = require('../services/notificationService');
-const { getActiveCycle, getOrCreateActiveCycle } = require('../services/cycleService');
+const { getActiveCycle } = require('../services/cycleService');
 const { logAction } = require('../services/auditService');
-
-// ─── CRÉER UN CYCLE DE COTISATIONS ────────────────────────────────────────
-const createCycleContributions = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const { dueDate } = req.body;
-
-    const group = await prisma.group.findFirst({
-      where: { id: groupId, tenantId: req.tenant.id },
-    });
-    if (!group) return error(res, 'Groupe introuvable', 404);
-
-    const members = await prisma.groupMember.findMany({
-      where: { groupId },
-      include: { user: true },
-    });
-
-    if (members.length === 0) {
-      return error(res, 'Aucun membre dans ce groupe', 400);
-    }
-
-    const cycle = await getOrCreateActiveCycle(groupId);
-
-    // ── Empêcher de créer une nouvelle collecte si la précédente
-    // de ce même cycle n'est pas encore terminée
-    const pendingInCycle = await prisma.contribution.count({
-      where: { cycleId: cycle.id, status: { in: ['PENDING', 'LATE'] } },
-    });
-    if (pendingInCycle > 0) {
-      return error(res,
-        `Des cotisations du cycle N°${cycle.cycleNumber} sont encore en attente ou en retard. Terminez-les avant d'en créer de nouvelles.`,
-        409
-      );
-    }
-
-    const contributions = await prisma.$transaction(
-      members.map((m) =>
-        prisma.contribution.create({
-          data: {
-            groupId,
-            userId: m.userId,
-            cycleId: cycle.id,
-            amount: group.amount,
-            dueDate: new Date(dueDate),
-            status: 'PENDING',
-          },
-        })
-      )
-    );
-
-    await logAction({
-      tenantId: req.tenant.id,
-      groupId,
-      actorType: 'TENANT',
-      actorId: req.tenant.id,
-      actorName: req.tenant.name,
-      action: 'CYCLE_CONTRIBUTIONS_CREATED',
-      targetType: 'Cycle',
-      targetId: cycle.id,
-      metadata: { cycleNumber: cycle.cycleNumber, count: contributions.length, dueDate },
-    });
-
-    return created(res, contributions,
-      `${contributions.length} cotisations créées avec succès (Cycle N°${cycle.cycleNumber})`);
-  } catch (err) {
-    console.error('createCycleContributions error:', err.message);
-    return error(res, 'Erreur serveur', 500);
-  }
-};
 
 // ─── LISTE DES COTISATIONS ─────────────────────────────────────────────────
 const getContributions = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { status, cycleId } = req.query;
+    const { status, cycleId, roundNumber } = req.query;
 
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
@@ -94,15 +25,22 @@ const getContributions = async (req, res) => {
 
     const where = { groupId };
     if (targetCycleId) where.cycleId = targetCycleId;
+    if (roundNumber) where.roundNumber = parseInt(roundNumber);
     if (status) where.status = status;
 
     const contributions = await prisma.contribution.findMany({
       where,
       include: { user: true },
-      orderBy: [{ dueDate: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ roundNumber: 'asc' }, { dueDate: 'asc' }],
     });
 
-    return success(res, contributions);
+    const now = new Date();
+    const enriched = contributions.map((c) => ({
+      ...c,
+      isLate: c.status === 'PENDING' && new Date(c.dueDate) < now,
+    }));
+
+    return success(res, enriched);
   } catch (err) {
     console.error('getContributions error:', err.message);
     return error(res, 'Erreur serveur', 500);
@@ -144,7 +82,12 @@ const markContributionReceived = async (req, res) => {
       action: 'CONTRIBUTION_MARKED_RECEIVED',
       targetType: 'Contribution',
       targetId: updated.id,
-      metadata: { memberName: updated.user.name, amount: updated.amount, note: note || null },
+      metadata: {
+        memberName: updated.user.name,
+        amount: updated.amount,
+        roundNumber: updated.roundNumber,
+        note: note || null,
+      },
     });
 
     return success(res, updated, 'Cotisation marquée comme reçue');
@@ -188,7 +131,12 @@ const markContributionLate = async (req, res) => {
       action: 'CONTRIBUTION_MARKED_LATE',
       targetType: 'Contribution',
       targetId: updated.id,
-      metadata: { memberName: updated.user.name, amount: updated.amount, note: note || null },
+      metadata: {
+        memberName: updated.user.name,
+        amount: updated.amount,
+        roundNumber: updated.roundNumber,
+        note: note || null,
+      },
     });
 
     return success(res, updated, 'Cotisation marquée en retard');
@@ -211,10 +159,16 @@ const getMemberContributions = async (req, res) => {
 
     const contributions = await prisma.contribution.findMany({
       where: { groupId, userId },
-      orderBy: { dueDate: 'desc' },
+      orderBy: [{ roundNumber: 'asc' }, { dueDate: 'asc' }],
     });
 
-    return success(res, contributions);
+    const now = new Date();
+    const enriched = contributions.map((c) => ({
+      ...c,
+      isLate: c.status === 'PENDING' && new Date(c.dueDate) < now,
+    }));
+
+    return success(res, enriched);
   } catch (err) {
     console.error('getMemberContributions error:', err.message);
     return error(res, 'Erreur serveur', 500);
@@ -231,38 +185,43 @@ const getGroupTurns = async (req, res) => {
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
+    const totalMembers = await prisma.groupMember.count({ where: { groupId } });
     const activeCycle = await getActiveCycle(groupId);
 
-    const members = await prisma.groupMember.findMany({
-      where: { groupId },
+    if (!activeCycle) {
+      return success(res, {
+        turns: [],
+        cycleNumber: null,
+        cycleStartDate: null,
+        cycleDueDate: null,
+        receivedCount: 0,
+        totalMembers,
+        allReceived: false,
+      });
+    }
+
+    const turns = await prisma.turn.findMany({
+      where: { cycleId: activeCycle.id },
       include: { user: true },
-      orderBy: { orderTurn: 'asc' },
+      orderBy: { turnNumber: 'asc' },
     });
 
-    const turns = activeCycle
-      ? await prisma.turn.findMany({
-          where: { cycleId: activeCycle.id },
-          include: { user: true },
-          orderBy: { turnNumber: 'asc' },
-        })
-      : [];
+    const now = new Date();
+    const enrichedTurns = turns.map((t) => ({
+      ...t,
+      isLate: t.status !== 'DONE' && new Date(t.scheduledDate) < now,
+    }));
 
-    const receivedUserIds = turns
-      .filter(t => t.status === 'DONE')
-      .map(t => t.userId);
-
-    const pendingMembers = members.filter(
-      m => !receivedUserIds.includes(m.userId)
-    );
+    const receivedCount = turns.filter((t) => t.status === 'DONE').length;
 
     return success(res, {
-      turns,
-      pendingMembers,
-      receivedCount: receivedUserIds.length,
-      totalMembers: members.length,
-      cycleNumber: activeCycle?.cycleNumber ?? null,
-      cycleId: activeCycle?.id ?? null,
-      allReceived: members.length > 0 && pendingMembers.length === 0,
+      turns: enrichedTurns,
+      cycleNumber: activeCycle.cycleNumber,
+      cycleStartDate: activeCycle.startDate,
+      cycleDueDate: activeCycle.dueDate,
+      receivedCount,
+      totalMembers: turns.length,
+      allReceived: turns.length > 0 && receivedCount === turns.length,
     });
   } catch (err) {
     console.error('getGroupTurns error:', err.message);
@@ -274,31 +233,27 @@ const getGroupTurns = async (req, res) => {
 const markTurnReceived = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { userId, turnNumber } = req.body;
+    const { turnNumber } = req.body;
 
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
-    const membership = await prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId, userId } },
+    const activeCycle = await getActiveCycle(groupId);
+    if (!activeCycle) {
+      return error(res, 'Aucun cycle actif. Démarrez un cycle avant de marquer un tour reçu.', 400);
+    }
+
+    const turn = await prisma.turn.findUnique({
+      where: { cycleId_turnNumber: { cycleId: activeCycle.id, turnNumber } },
+      include: { user: true },
     });
-    if (!membership) return error(res, 'Membre introuvable dans ce groupe', 404);
+    if (!turn) return error(res, 'Tour introuvable pour ce cycle', 404);
 
-    const cycle = await getOrCreateActiveCycle(groupId);
-
-    const turn = await prisma.turn.upsert({
-      where: { cycleId_turnNumber: { cycleId: cycle.id, turnNumber } },
-      update: { status: 'DONE', userId },
-      create: {
-        groupId,
-        userId,
-        cycleId: cycle.id,
-        turnNumber,
-        scheduledDate: new Date(),
-        status: 'DONE',
-      },
+    const updated = await prisma.turn.update({
+      where: { id: turn.id },
+      data: { status: 'DONE' },
       include: { user: true },
     });
 
@@ -306,7 +261,7 @@ const markTurnReceived = async (req, res) => {
     await notifyTurnReceived({
       tenantId: req.tenant.id,
       group,
-      user: turn.user,
+      user: updated.user,
       turnNumber,
     });
 
@@ -318,12 +273,12 @@ const markTurnReceived = async (req, res) => {
       actorName: req.tenant.name,
       action: 'TURN_MARKED_RECEIVED',
       targetType: 'Turn',
-      targetId: turn.id,
-      metadata: { memberName: turn.user.name, turnNumber, cycleNumber: cycle.cycleNumber },
+      targetId: updated.id,
+      metadata: { memberName: updated.user.name, turnNumber, cycleNumber: activeCycle.cycleNumber },
     });
 
-    return success(res, turn,
-      `${turn.user.name} a bien reçu sa mise — Tour N°${turnNumber} (Cycle N°${cycle.cycleNumber})`);
+    return success(res, updated,
+      `${updated.user.name} a bien reçu sa mise — Tour N°${turnNumber} (Cycle N°${activeCycle.cycleNumber})`);
   } catch (err) {
     console.error('markTurnReceived error:', err.message);
     return error(res, 'Erreur serveur', 500);
@@ -331,7 +286,6 @@ const markTurnReceived = async (req, res) => {
 };
 
 module.exports = {
-  createCycleContributions,
   getContributions,
   markContributionReceived,
   markContributionLate,

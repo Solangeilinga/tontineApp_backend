@@ -167,8 +167,136 @@ const sendDailyReminders = async () => {
         console.log(`${contributions.length} rappels envoyes pour J-${daysAhead}`);
       }
     }
+
+    // ── COTISATIONS EN RETARD (dueDate dépassée, toujours PENDING) ─────────
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const overdueContributions = await prisma.contribution.findMany({
+      where: { status: 'PENDING', dueDate: { lt: todayStart } },
+      include: { user: true, group: true },
+    });
+
+    for (const contrib of overdueContributions) {
+      const { user, group } = contrib;
+
+      await prisma.contribution.update({
+        where: { id: contrib.id },
+        data: { status: 'LATE' },
+      });
+
+      const tenant = await prisma.tenant.findUnique({ where: { id: group.tenantId } });
+
+      await notifyContributionOverdue({
+        tenantId: group.tenantId,
+        group,
+        user,
+        gerant: tenant,
+        roundNumber: contrib.roundNumber,
+        dueDate: contrib.dueDate,
+      });
+    }
+    if (overdueContributions.length > 0) {
+      console.log(`${overdueContributions.length} cotisation(s) marquée(s) en retard`);
+    }
+
+    // ── TOURS EN RETARD (scheduledDate dépassée, toujours UPCOMING) ─────────
+    const overdueTurns = await prisma.turn.findMany({
+      where: { status: 'UPCOMING', scheduledDate: { lt: todayStart } },
+      include: { user: true, group: true },
+    });
+
+    for (const turn of overdueTurns) {
+      const { user, group } = turn;
+      const tenant = await prisma.tenant.findUnique({ where: { id: group.tenantId } });
+
+      await notifyTurnOverdue({
+        tenantId: group.tenantId,
+        group,
+        user,
+        gerant: tenant,
+        turnNumber: turn.turnNumber,
+        scheduledDate: turn.scheduledDate,
+      });
+    }
+    if (overdueTurns.length > 0) {
+      console.log(`${overdueTurns.length} rappel(s) de tour en retard envoyé(s)`);
+    }
   } catch (err) {
     console.error('Erreur rappels quotidiens:', err.message);
+  }
+};
+
+// ─── NOTIFIER RETARD DE COTISATION (membre + gérant) ──────────────────────
+const notifyContributionOverdue = async ({ tenantId, group, user, gerant, roundNumber, dueDate }) => {
+  try {
+    const dateStr = new Date(dueDate).toLocaleDateString('fr-FR');
+
+    // ── SMS au membre concerné
+    const memberMessage =
+      `MaTontine - Vous etes en retard sur votre cotisation de ${group.amount} ${group.currency} `
+      + `pour le groupe "${group.name}" (echeance du ${dateStr}). Merci de regulariser rapidement.`;
+    await sendSMS(user.phone, memberMessage);
+
+    if (user.fcmToken) {
+      await sendPushNotification({
+        token: user.fcmToken,
+        title: 'Cotisation en retard',
+        body: `Votre cotisation pour "${group.name}" est en retard.`,
+        data: { groupId: group.id, type: 'CONTRIBUTION_OVERDUE' },
+      });
+    }
+
+    await createNotification({
+      tenantId,
+      userId: user.id,
+      type: 'CONTRIBUTION_OVERDUE',
+      title: 'Cotisation en retard',
+      message: memberMessage,
+      data: { groupId: group.id, roundNumber },
+    });
+
+    // ── SMS au gérant
+    if (gerant?.phone) {
+      const gerantMessage =
+        `MaTontine - ${user.name} est en retard sur sa cotisation du groupe "${group.name}" `
+        + `(echeance du ${dateStr}).`;
+      await sendSMS(gerant.phone, gerantMessage);
+    }
+  } catch (err) {
+    console.error('Erreur notification retard cotisation:', err.message);
+  }
+};
+
+// ─── NOTIFIER RETARD DE TOUR (gérant + membre concerné) ───────────────────
+const notifyTurnOverdue = async ({ tenantId, group, user, gerant, turnNumber, scheduledDate }) => {
+  try {
+    const dateStr = new Date(scheduledDate).toLocaleDateString('fr-FR');
+
+    // ── SMS au gérant (à confirmer la remise)
+    if (gerant?.phone) {
+      const gerantMessage =
+        `MaTontine - Le tour N°${turnNumber} de ${user.name} (groupe "${group.name}") `
+        + `etait prevu le ${dateStr}. Pensez a confirmer la remise dans l'application.`;
+      await sendSMS(gerant.phone, gerantMessage);
+    }
+
+    // ── SMS au membre concerné (rappel qu'il devait recevoir sa mise)
+    const memberMessage =
+      `MaTontine - Votre tour (N°${turnNumber}) dans le groupe "${group.name}" etait prevu `
+      + `le ${dateStr}. Rapprochez-vous du gerant si vous n'avez pas encore recu votre mise.`;
+    await sendSMS(user.phone, memberMessage);
+
+    await createNotification({
+      tenantId,
+      userId: user.id,
+      type: 'TURN_OVERDUE',
+      title: 'Tour en retard',
+      message: memberMessage,
+      data: { groupId: group.id, turnNumber },
+    });
+  } catch (err) {
+    console.error('Erreur notification retard tour:', err.message);
   }
 };
 
@@ -232,4 +360,6 @@ module.exports = {
   scheduleDailyReminders,
   notifyMemberJoined,
   notifyTurnReceived,
+  notifyContributionOverdue,
+  notifyTurnOverdue,
 };

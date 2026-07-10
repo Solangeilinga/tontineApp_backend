@@ -53,19 +53,20 @@ model User {
 
 // ─── GROUPS (Groupes de tontine) ───────────────────────────────────────────
 model Group {
-  id           String           @id @default(uuid())
-  tenantId     String           @map("tenant_id")
-  name         String
-  type         ContributionType
-  frequency    Frequency
-  amount       Float
-  currency     String           @default("XOF")
-  description  String?
-  inviteCode   String           @unique @map("invite_code")
-  maxMembers   Int?             @map("max_members")
-  isActive     Boolean          @default(true) @map("is_active")
-  createdAt    DateTime         @default(now()) @map("created_at")
-  updatedAt    DateTime         @updatedAt @map("updated_at")
+  id             String           @id @default(uuid())
+  tenantId       String           @map("tenant_id")
+  name           String
+  type           ContributionType
+  frequencyValue Int              @default(1) @map("frequency_value")
+  frequencyUnit  FrequencyUnit    @default(MONTHS) @map("frequency_unit")
+  amount         Float
+  currency       String           @default("XOF")
+  description    String?
+  inviteCode     String           @unique @map("invite_code")
+  maxMembers     Int?             @map("max_members")
+  isActive       Boolean          @default(true) @map("is_active")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
 
   // Relations
   tenant        Tenant         @relation(fields: [tenantId], references: [id])
@@ -96,14 +97,16 @@ model GroupMember {
 
 // ─── CYCLES (Tours de rotation complets) ──────────────────────────────────
 // Un cycle = un tour de rotation complet du groupe : chaque membre reçoit
-// sa mise une fois (dans l'ordre de orderTurn). Une fois tous les membres
-// servis, le gérant clôture le cycle et un nouveau cycle démarre à zéro.
+// sa mise une fois (dans l'ordre de orderTurn), selon un calendrier calculé
+// à l'avance à partir de startDate + fréquence du groupe. Une fois tous les
+// membres servis, le gérant clôture le cycle et un nouveau cycle démarre.
 model Cycle {
   id          String      @id @default(uuid())
   groupId     String      @map("group_id")
   cycleNumber Int         @map("cycle_number")
   status      CycleStatus @default(ACTIVE)
-  startDate   DateTime    @default(now()) @map("start_date")
+  startDate   DateTime    @map("start_date")
+  dueDate     DateTime?   @map("due_date")
   endDate     DateTime?   @map("end_date")
   createdAt   DateTime    @default(now()) @map("created_at")
 
@@ -118,17 +121,18 @@ model Cycle {
 
 // ─── CONTRIBUTIONS ─────────────────────────────────────────────────────────
 model Contribution {
-  id        String             @id @default(uuid())
-  groupId   String             @map("group_id")
-  userId    String             @map("user_id")
-  cycleId   String             @map("cycle_id")
-  status    ContributionStatus @default(PENDING)
-  amount    Float
-  dueDate   DateTime           @map("due_date")
-  paidDate  DateTime?          @map("paid_date")
-  note      String?
-  createdAt DateTime           @default(now()) @map("created_at")
-  updatedAt DateTime           @updatedAt @map("updated_at")
+  id          String             @id @default(uuid())
+  groupId     String             @map("group_id")
+  userId      String             @map("user_id")
+  cycleId     String             @map("cycle_id")
+  roundNumber Int                @map("round_number")
+  status      ContributionStatus @default(PENDING)
+  amount      Float
+  dueDate     DateTime           @map("due_date")
+  paidDate    DateTime?          @map("paid_date")
+  note        String?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
 
   // Relations
   group Group @relation(fields: [groupId], references: [id])
@@ -209,10 +213,10 @@ enum ContributionType {
   OTHER
 }
 
-enum Frequency {
-  WEEKLY
-  MONTHLY
-  OTHER
+enum FrequencyUnit {
+  DAYS
+  WEEKS
+  MONTHS
 }
 
 enum ContributionStatus {
@@ -242,6 +246,8 @@ enum NotificationType {
   REMINDER_J1
   YOUR_TURN
   CONTRIBUTION_CONFIRMED
+  CONTRIBUTION_OVERDUE
+  TURN_OVERDUE
   MEMBER_JOINED
   GENERAL
 }
