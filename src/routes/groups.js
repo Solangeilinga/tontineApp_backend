@@ -95,5 +95,6 @@ router.get('/:groupId/audit-log', authenticateTenant, auditCtrl.getGroupAuditLog
 // ─── ROUTES MEMBRE ────────────────────────────────────────────────────────
 router.get('/:groupId/member/turns', authenticateUser, memberCtrl.getMemberTurns);
 router.get('/:groupId/member/contributions', authenticateUser, contribCtrl.getMemberContributions);
+router.delete('/:groupId/member/contributions/:id', authenticateUser, contribCtrl.hideMemberContribution);
 
 module.exports = router;

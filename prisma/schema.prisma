@@ -121,18 +121,22 @@ model Cycle {
 
 // ─── CONTRIBUTIONS ─────────────────────────────────────────────────────────
 model Contribution {
-  id          String             @id @default(uuid())
-  groupId     String             @map("group_id")
-  userId      String             @map("user_id")
-  cycleId     String             @map("cycle_id")
-  roundNumber Int                @map("round_number")
-  status      ContributionStatus @default(PENDING)
-  amount      Float
-  dueDate     DateTime           @map("due_date")
-  paidDate    DateTime?          @map("paid_date")
-  note        String?
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
+  id              String             @id @default(uuid())
+  groupId         String             @map("group_id")
+  userId          String             @map("user_id")
+  cycleId         String             @map("cycle_id")
+  roundNumber     Int                @map("round_number")
+  status          ContributionStatus @default(PENDING)
+  amount          Float
+  dueDate         DateTime           @map("due_date")
+  paidDate        DateTime?          @map("paid_date")
+  note            String?
+  // Masque cette cotisation dans l'historique personnel du membre
+  // uniquement. N'affecte JAMAIS les vues du gérant (liste, récap de
+  // cycle) — la donnée financière réelle reste intacte et comptée.
+  hiddenForMember Boolean            @default(false) @map("hidden_for_member")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
 
   // Relations
   group Group @relation(fields: [groupId], references: [id])

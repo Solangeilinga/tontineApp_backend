@@ -158,7 +158,7 @@ const getMemberContributions = async (req, res) => {
     if (!membership) return error(res, 'Vous n\'êtes pas membre de ce groupe', 403);
 
     const contributions = await prisma.contribution.findMany({
-      where: { groupId, userId },
+      where: { groupId, userId, hiddenForMember: false },
       orderBy: [{ roundNumber: 'asc' }, { dueDate: 'asc' }],
     });
 
@@ -171,6 +171,32 @@ const getMemberContributions = async (req, res) => {
     return success(res, enriched);
   } catch (err) {
     console.error('getMemberContributions error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MASQUER UNE COTISATION DE MON HISTORIQUE (suppression douce) ────────
+// Ne retire l'entrée QUE de la vue personnelle du membre. La cotisation
+// reste intacte et continue de compter normalement dans les vues et
+// statistiques du gérant (liste des cotisations, récap de cycle).
+const hideMemberContribution = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const contribution = await prisma.contribution.findFirst({
+      where: { id, userId },
+    });
+    if (!contribution) return error(res, 'Cotisation introuvable', 404);
+
+    await prisma.contribution.update({
+      where: { id },
+      data: { hiddenForMember: true },
+    });
+
+    return success(res, null, 'Retiré de votre historique');
+  } catch (err) {
+    console.error('hideMemberContribution error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -290,6 +316,7 @@ module.exports = {
   markContributionReceived,
   markContributionLate,
   getMemberContributions,
+  hideMemberContribution,
   getGroupTurns,
   markTurnReceived,
 };
