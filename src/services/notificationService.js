@@ -17,19 +17,19 @@ const sendSMS = async (phone, message) => {
     });
 
     const sms = at.SMS;
-    const response = await sms.send({
-      to: [phone],
-      message,
-      from: process.env.AT_SENDER_ID || 'MaTontine',
-    });
+    const smsPayload = { to: [phone], message };
+    // N'ajoute "from" que si un Sender ID est explicitement configuré et
+    // approuvé — sinon Africa's Talking utilise son expéditeur générique.
+    if (process.env.AT_SENDER_ID) smsPayload.from = process.env.AT_SENDER_ID;
+
+    const response = await sms.send(smsPayload);
 
     const recipient = response?.SMSMessageData?.Recipients?.[0];
     console.log('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
 
     if (!recipient || recipient.status !== 'Success') {
-      console.error(
-        `❌ Livraison SMS échouée à ${phone} — statut: ${recipient?.status || 'inconnu'} (code ${recipient?.statusCode ?? '?'})`
-      );
+      const reason = response?.SMSMessageData?.Message || recipient?.status || 'réponse invalide';
+      console.error(`❌ Livraison SMS échouée à ${phone} — ${reason}${recipient?.statusCode ? ` (code ${recipient.statusCode})` : ''}`);
       return;
     }
 
