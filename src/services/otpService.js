@@ -38,9 +38,10 @@ const sendOTP = async (phone) => {
       message: `Votre code de vérification MaTontine est : ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} minutes.`,
       from: process.env.AT_SENDER_ID || 'MaTontine',
     });
+    console.log(`✅ OTP envoyé par SMS à ${phone}`);
     return { success: true };
   } catch (err) {
-    console.error('❌ Erreur envoi SMS:', err);
+    console.error('❌ Erreur envoi SMS:', err.message);
     // Supprimer l'OTP de Redis si envoi échoue
     await redis.del(key);
     throw new Error("Échec de l'envoi du SMS. Réessayez.");

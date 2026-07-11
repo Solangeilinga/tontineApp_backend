@@ -97,6 +97,7 @@ const tenantLoginRequestOTP = async (req, res) => {
     });
 
     if (!tenant || !tenant.isActive) {
+      console.log(`ℹ️ tenantLoginRequestOTP: aucun tenant actif pour ${normalizedPhone} — aucun SMS envoyé (comportement anti-énumération)`);
       return success(res, null, 'Si ce numéro est enregistré, un code vous sera envoyé.');
     }
 
@@ -249,6 +250,7 @@ const memberLoginRequestOTP = async (req, res) => {
     });
 
     if (!user) {
+      console.log(`ℹ️ memberLoginRequestOTP: aucun user actif pour ${normalizedPhone} — aucun SMS envoyé (comportement anti-énumération)`);
       return success(res, null, 'Si ce numéro est enregistré, un code vous sera envoyé.');
     }
 
