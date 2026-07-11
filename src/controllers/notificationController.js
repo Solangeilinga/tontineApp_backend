@@ -56,6 +56,20 @@ const deleteNotification = async (req, res) => {
   }
 };
 
+// ─── NOMBRE DE NOTIFICATIONS NON LUES ─────────────────────────────────────
+const getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const count = await prisma.notification.count({
+      where: { userId, isRead: false, isDeleted: false },
+    });
+    return success(res, { count });
+  } catch (err) {
+    console.error(err);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 // ─── MARQUER UNE NOTIFICATION COMME LUE ───────────────────────────────────
 const markAsRead = async (req, res) => {
   try {
@@ -100,15 +114,22 @@ const markAllAsRead = async (req, res) => {
 };
 
 // ─── ENREGISTRER LE TOKEN FCM ──────────────────────────────────────────────
+// ─── METTRE À JOUR LE TOKEN FCM (gérant OU membre) ────────────────────────
 const updateFcmToken = async (req, res) => {
   try {
     const { fcmToken } = req.body;
-    const userId = req.user.id;
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { fcmToken },
-    });
+    if (req.accountType === 'tenant') {
+      await prisma.tenant.update({
+        where: { id: req.tenant.id },
+        data: { fcmToken },
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { fcmToken },
+      });
+    }
 
     return success(res, null, 'Token FCM mis à jour');
   } catch (err) {
@@ -117,4 +138,4 @@ const updateFcmToken = async (req, res) => {
   }
 };
 
-module.exports = { getNotifications, markAsRead, markAllAsRead, updateFcmToken, deleteNotification };
+module.exports = { getNotifications, markAsRead, markAllAsRead, updateFcmToken, deleteNotification, getUnreadCount };
