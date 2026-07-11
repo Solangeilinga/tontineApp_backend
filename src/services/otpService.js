@@ -35,7 +35,7 @@ const sendOTP = async (phone) => {
   try {
     const smsPayload = {
       to: [phone],
-      message: `Votre code de vérification MaTontine est : ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} minutes.`,
+      message: `MaTontine : votre code est ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} min. Bienvenue !`,
     };
     // N'ajoute "from" que si un Sender ID est explicitement configuré et
     // approuvé — sinon Africa's Talking utilise son expéditeur générique.
