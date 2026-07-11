@@ -17,13 +17,23 @@ const sendSMS = async (phone, message) => {
     });
 
     const sms = at.SMS;
-    await sms.send({
+    const response = await sms.send({
       to: [phone],
       message,
       from: process.env.AT_SENDER_ID || 'MaTontine',
     });
 
-    console.log(`SMS envoye a ${phone}`);
+    const recipient = response?.SMSMessageData?.Recipients?.[0];
+    console.log('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
+
+    if (!recipient || recipient.status !== 'Success') {
+      console.error(
+        `❌ Livraison SMS échouée à ${phone} — statut: ${recipient?.status || 'inconnu'} (code ${recipient?.statusCode ?? '?'})`
+      );
+      return;
+    }
+
+    console.log(`SMS envoye a ${phone} — coût: ${recipient.cost}`);
   } catch (err) {
     console.error('Erreur envoi SMS:', err.message);
   }

@@ -33,12 +33,22 @@ const sendOTP = async (phone) => {
 
   // En production, envoi SMS via Africa's Talking
   try {
-    await sms.send({
+    const response = await sms.send({
       to: [phone],
       message: `Votre code de vérification MaTontine est : ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} minutes.`,
       from: process.env.AT_SENDER_ID || 'MaTontine',
     });
-    console.log(`✅ OTP envoyé par SMS à ${phone}`);
+
+    const recipient = response?.SMSMessageData?.Recipients?.[0];
+    console.log('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
+
+    if (!recipient || recipient.status !== 'Success') {
+      throw new Error(
+        `Livraison échouée — statut: ${recipient?.status || 'inconnu'} (code ${recipient?.statusCode ?? '?'})`
+      );
+    }
+
+    console.log(`✅ OTP envoyé par SMS à ${phone} — coût: ${recipient.cost}`);
     return { success: true };
   } catch (err) {
     console.error('❌ Erreur envoi SMS:', err.message);
