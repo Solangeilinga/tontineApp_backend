@@ -4,7 +4,8 @@ const { getRedisClient } = require('../config/redis');
 const { generateOTP } = require('../utils/otp');
 
 const OTP_PREFIX = 'otp:';
-const OTP_EXPIRY = parseInt(process.env.OTP_EXPIRY_MINUTES || '5') * 60; // secondes
+const OTP_EXPIRY_MINUTES = parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10);
+const OTP_EXPIRY = (Number.isNaN(OTP_EXPIRY_MINUTES) ? 10 : OTP_EXPIRY_MINUTES) * 60; // secondes
 
 // Initialiser Africa's Talking
 const at = AfricasTalking({
@@ -35,7 +36,7 @@ const sendOTP = async (phone) => {
   try {
     const smsPayload = {
       to: [phone],
-      message: `MaTontine : votre code est ${otp}. Valable ${process.env.OTP_EXPIRY_MINUTES || 5} min. Bienvenue !`,
+      message: `MaTontine : votre code est ${otp}. Valable ${OTP_EXPIRY_MINUTES} min. Bienvenue !`,
     };
     // N'ajoute "from" que si un Sender ID est explicitement configuré et
     // approuvé — sinon Africa's Talking utilise son expéditeur générique.
