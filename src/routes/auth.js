@@ -63,6 +63,7 @@ router.post('/tenant/pin/verify-locked',
 );
 
 // ── GÉRANT — Profil
+router.get('/tenant/me', authenticateTenant, ctrl.getTenantProfile);
 router.put('/tenant/profile',
   authenticateTenant, [nameValidator], validate,
   ctrl.updateTenantProfile
@@ -88,6 +89,23 @@ router.post('/member/login/request-otp',
 router.post('/member/login/verify',
   [phoneValidator, otpValidator], validate,
   ctrl.memberLoginVerify
+);
+// Uniquement si memberLoginVerify a répondu requiresSelection: true
+// (numéro membre chez plusieurs gérants — voir authController.js)
+router.post('/member/login/select-space',
+  [
+    body('selectionToken').notEmpty().withMessage('Jeton requis'),
+    body('tenantId').notEmpty().withMessage('tenantId requis'),
+  ],
+  validate,
+  ctrl.memberLoginSelectSpace
+);
+
+// ── MEMBRE — Profil
+router.get('/member/me', authenticateUser, ctrl.getMemberProfile);
+router.put('/member/profile',
+  authenticateUser, [nameValidator], validate,
+  ctrl.updateMemberProfile
 );
 
 // ── MEMBRE — PIN (avec token)

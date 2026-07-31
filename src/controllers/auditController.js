@@ -1,6 +1,13 @@
 // src/controllers/auditController.js
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
+const { getEffectivePlan } = require('../services/subscriptionService');
+const { getPlanConfig } = require('../config/plans');
+
+// Nombre d'entrées visibles pour les plans qui n'ont pas le journal complet
+// (fullAuditLog: false) — un aperçu suffisant pour donner envie de passer
+// au plan Pro, sans donner un accès complet gratuitement.
+const AUDIT_PREVIEW_LIMIT = 15;
 
 // ─── LIBELLÉS LISIBLES DES ACTIONS ────────────────────────────────────────
 const ACTION_LABELS = {
@@ -31,10 +38,17 @@ const getGroupAuditLog = async (req, res) => {
     });
     if (!group) return error(res, 'Groupe introuvable', 404);
 
+    const effectivePlan = await getEffectivePlan(req.tenant.id);
+    const hasFullAuditLog = !!getPlanConfig(effectivePlan).limits.fullAuditLog;
+    const requestedLimit = Math.min(parseInt(limit) || 100, 500);
+    const effectiveLimit = hasFullAuditLog ? requestedLimit : Math.min(requestedLimit, AUDIT_PREVIEW_LIMIT);
+
+    const totalCount = await prisma.auditLog.count({ where: { groupId, tenantId: req.tenant.id } });
+
     const logs = await prisma.auditLog.findMany({
       where: { groupId, tenantId: req.tenant.id },
       orderBy: { createdAt: 'desc' },
-      take: Math.min(parseInt(limit) || 100, 500),
+      take: effectiveLimit,
     });
 
     const enriched = logs.map((l) => ({
@@ -48,7 +62,11 @@ const getGroupAuditLog = async (req, res) => {
       createdAt: l.createdAt,
     }));
 
-    return success(res, enriched);
+    return success(res, {
+      logs: enriched,
+      isTruncated: !hasFullAuditLog && totalCount > effectiveLimit,
+      totalCount,
+    });
   } catch (err) {
     console.error('getGroupAuditLog error:', err.message);
     return error(res, 'Erreur serveur', 500);

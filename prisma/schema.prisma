@@ -24,6 +24,7 @@ model Tenant {
   groups        Group[]
   users         User[]
   notifications Notification[]
+  subscription  Subscription?
 
   @@map("tenants")
 }
@@ -217,6 +218,65 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ─── SUBSCRIPTIONS (Abonnement du gérant / monétisation) ──────────────────
+// Un seul abonnement par tenant. Le plan FREE n'a pas de currentPeriodEnd
+// (accès permanent, mais limité fonctionnellement — voir middleware
+// requireActiveSubscription). Les plans payants sont activés/prolongés par
+// le webhook SebPay lorsqu'un Payment passe à APPROVED.
+model Subscription {
+  id               String       @id @default(uuid())
+  tenantId         String       @unique @map("tenant_id")
+  plan             SubPlan      @default(FREE)
+  status           SubStatus    @default(ACTIVE)
+  // Date de fin de la période payée en cours. Null pour le plan FREE.
+  currentPeriodEnd DateTime?    @map("current_period_end")
+  // Pour savoir si l'essai gratuit a déjà été consommé (une seule fois/tenant)
+  trialUsedAt      DateTime?    @map("trial_used_at")
+  // Empêche de renvoyer le rappel J-3 plusieurs fois pour la même période.
+  // Remis à null à chaque renouvellement (voir subscriptionService.handleWebhookPayload).
+  expiryReminderSentAt DateTime? @map("expiry_reminder_sent_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  payments Payment[]
+
+  @@map("subscriptions")
+}
+
+// ─── PAYMENTS (Transactions SebPay liées à un abonnement) ─────────────────
+// Une ligne par TENTATIVE de collecte SebPay. external_reference est notre
+// clé d'idempotence : générée par nous avant l'appel, elle sert à retrouver
+// la transaction quand le webhook arrive (SebPay nous la renvoie telle quelle).
+model Payment {
+  id                  String        @id @default(uuid())
+  subscriptionId      String        @map("subscription_id")
+  tenantId            String        @map("tenant_id")
+  plan                SubPlan       @map("plan")
+  amount              Float
+  currency            String        @default("XOF")
+  operator             String?
+  phone                String?
+  country              String        @default("BJ")
+  // Notre référence unique envoyée à SebPay (external_reference)
+  externalReference   String        @unique @map("external_reference")
+  // Identifiant renvoyé par SebPay (transaction_id) — rempli dès la réponse
+  // initiale, confirmé/complété par le webhook.
+  sebpayTransactionId String?       @map("sebpay_transaction_id")
+  status              PaymentStatus @default(PENDING)
+  // Snapshot du dernier payload webhook reçu, pour audit/debug.
+  rawWebhookPayload   Json?         @map("raw_webhook_payload")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([tenantId])
+  @@map("payments")
+}
+
 // ─── ENUMS ─────────────────────────────────────────────────────────────────
 enum ContributionType {
   MONEY
@@ -263,4 +323,25 @@ enum NotificationType {
   TURN_OVERDUE
   MEMBER_JOINED
   GENERAL
+  SUBSCRIPTION_ACTIVATED
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+}
+
+enum SubPlan {
+  FREE
+  STARTER
+  PRO
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

@@ -4,6 +4,9 @@ const router = express.Router();
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { authenticateTenant, authenticateUser } = require('../middleware/auth');
+const { requireLimit } = require('../middleware/requireLimit');
+const { requireFeature } = require('../middleware/requireFeature');
+const prisma = require('../config/database');
 const groupCtrl = require('../controllers/groupController');
 const memberCtrl = require('../controllers/memberController');
 const contribCtrl = require('../controllers/contributionController');
@@ -27,7 +30,16 @@ router.patch('/contributions/:id/received', authenticateTenant, contribCtrl.mark
 router.patch('/contributions/:id/late', authenticateTenant, contribCtrl.markContributionLate);
 
 // ─── ROUTES GÉRANT avec :id ────────────────────────────────────────────────
-router.post('/', authenticateTenant, groupValidators, validate, groupCtrl.createGroup);
+router.post(
+  '/',
+  authenticateTenant,
+  requireLimit('maxGroups', async (req) =>
+    prisma.group.count({ where: { tenantId: req.tenant.id, isActive: true } })
+  ),
+  groupValidators,
+  validate,
+  groupCtrl.createGroup
+);
 router.get('/', authenticateTenant, groupCtrl.getGroups);
 router.get('/:id', authenticateTenant, groupCtrl.getGroup);
 router.put('/:id', authenticateTenant, validate, groupCtrl.updateGroup);
@@ -43,6 +55,9 @@ router.delete('/:groupId/activity/:id', authenticateTenant, activityCtrl.dismiss
 router.get('/:groupId/members', authenticateTenant, memberCtrl.getMembers);
 router.post('/:groupId/members',
   authenticateTenant,
+  requireLimit('maxMembersPerGroup', async (req) =>
+    prisma.groupMember.count({ where: { groupId: req.params.groupId } })
+  ),
   [
     body('name').notEmpty().withMessage('Nom requis'),
     body('phone').notEmpty().withMessage('Téléphone requis'),
@@ -61,6 +76,11 @@ router.delete('/:groupId/members/:userId', authenticateTenant, memberCtrl.remove
 
 // Cotisations
 router.get('/:groupId/contributions', authenticateTenant, contribCtrl.getContributions);
+router.get('/:groupId/contributions/export',
+  authenticateTenant,
+  requireFeature('exportEnabled'),
+  contribCtrl.exportGroupContributions
+);
 
 // Tours
 router.get('/:groupId/turns', authenticateTenant, contribCtrl.getGroupTurns);

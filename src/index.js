@@ -5,11 +5,13 @@ const helmet = require('helmet');
 const cors = require('cors');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const { scheduleDailyReminders } = require('./services/notificationService');
+const { scheduleSubscriptionChecks } = require('./services/subscriptionCron');
 const { initFirebase } = require('./config/firebase');
 
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
 const notificationRoutes = require('./routes/notifications');
+const subscriptionRoutes = require('./routes/subscriptions');
 
 const app = express();
 
@@ -27,6 +29,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+// ── Body brut pour le webhook SebPay UNIQUEMENT — nécessaire pour vérifier
+// la signature HMAC (voir subscriptionController.handleWebhook). Doit être
+// monté AVANT express.json() global, sinon le body arrive déjà parsé.
+app.use('/api/subscriptions/webhook', express.raw({ type: 'application/json', limit: '100kb' }));
+
 app.use(express.json({ limit: '10kb' })); // Limite taille requête
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(generalLimiter);
@@ -35,6 +42,7 @@ app.use(generalLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // ── Health check
 app.get('/health', (req, res) => {
@@ -66,6 +74,7 @@ app.listen(PORT, () => {
   }
 
   scheduleDailyReminders();
+  scheduleSubscriptionChecks();
 });
 
 module.exports = app;

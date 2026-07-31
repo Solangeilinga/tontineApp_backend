@@ -4,7 +4,7 @@
   "description": "MaTontine API - Gestion de tontines multi-tenant",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "npx prisma db push --accept-data-loss && node src/index.js",
     "dev": "nodemon src/index.js",
     "db:migrate": "npx prisma migrate dev",
     "db:seed": "node prisma/seed.js",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.12.0",
+    "prisma": "^5.12.0",
     "africastalking": "^0.6.4",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -26,7 +27,6 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "prisma": "^5.12.0"
+    "nodemon": "^3.1.0"
   }
 }

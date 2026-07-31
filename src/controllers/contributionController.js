@@ -311,6 +311,71 @@ const markTurnReceived = async (req, res) => {
   }
 };
 
+// ─── EXPORT CSV DES COTISATIONS D'UN GROUPE (plan PRO uniquement) ─────────
+// Le paywall (requireFeature('exportEnabled')) est vérifié en amont dans la
+// route — ce contrôleur suppose que l'accès est déjà autorisé.
+const exportGroupContributions = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { cycleId } = req.query;
+
+    const group = await prisma.group.findFirst({
+      where: { id: groupId, tenantId: req.tenant.id },
+    });
+    if (!group) return error(res, 'Groupe introuvable', 404);
+
+    const where = { groupId };
+    if (cycleId) where.cycleId = cycleId;
+
+    const contributions = await prisma.contribution.findMany({
+      where,
+      include: { user: true, cycle: true },
+      orderBy: [{ cycleId: 'asc' }, { roundNumber: 'asc' }, { dueDate: 'asc' }],
+    });
+
+    const escapeCsv = (val) => {
+      const s = val === null || val === undefined ? '' : String(val);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const header = ['Cycle', 'Tour', 'Membre', 'Téléphone', 'Montant (FCFA)', 'Échéance', 'Statut', 'Date de paiement', 'Note'];
+    const rows = contributions.map((c) => [
+      c.cycle?.cycleNumber ?? '',
+      c.roundNumber,
+      c.user?.name ?? '',
+      c.user?.phone ?? '',
+      c.amount,
+      new Date(c.dueDate).toLocaleDateString('fr-FR'),
+      c.status,
+      c.paidDate ? new Date(c.paidDate).toLocaleDateString('fr-FR') : '',
+      c.note ?? '',
+    ]);
+
+    const csv = [header, ...rows].map((r) => r.map(escapeCsv).join(';')).join('\n');
+    // BOM UTF-8 pour qu'Excel affiche correctement les accents.
+    const csvWithBom = '\uFEFF' + csv;
+
+    await logAction({
+      tenantId: req.tenant.id,
+      groupId,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'CONTRIBUTIONS_EXPORTED',
+      targetType: 'Group',
+      targetId: groupId,
+      metadata: { count: contributions.length, cycleId: cycleId || 'all' },
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${group.name.replace(/[^a-z0-9]/gi, '_')}_cotisations.csv"`);
+    return res.status(200).send(csvWithBom);
+  } catch (err) {
+    console.error('exportGroupContributions error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 module.exports = {
   getContributions,
   markContributionReceived,
@@ -319,4 +384,5 @@ module.exports = {
   hideMemberContribution,
   getGroupTurns,
   markTurnReceived,
+  exportGroupContributions,
 };

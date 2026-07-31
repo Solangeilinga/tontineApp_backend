@@ -1,4 +1,5 @@
 // src/controllers/authController.js
+const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
 const { sendOTP, verifyOTP } = require('../services/otpService');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
@@ -263,6 +264,15 @@ const memberLoginRequestOTP = async (req, res) => {
 };
 
 // ─── MEMBRE : Vérifier OTP connexion ──────────────────────────────────────
+// Un même numéro peut être membre chez PLUSIEURS gérants différents (une
+// ligne `User` par tenant, cf. @@unique([tenantId, phone])). Après
+// vérification de l'OTP, on doit donc distinguer deux cas :
+//  - 1 seul compte trouvé  → connexion directe, comme avant.
+//  - 2+ comptes trouvés    → on ne peut pas deviner lequel l'utilisateur
+//    veut ouvrir : on renvoie la liste des "espaces" (un par gérant) et un
+//    jeton de sélection de courte durée (5 min) prouvant que l'OTP a bien
+//    été validé, sans avoir à le redemander. Le client appelle ensuite
+//    /member/login/select-space avec ce jeton + le tenantId choisi.
 const memberLoginVerify = async (req, res) => {
   try {
     const { phone, otp } = req.body;
@@ -271,11 +281,69 @@ const memberLoginVerify = async (req, res) => {
     const result = await verifyOTP(normalizedPhone, otp);
     if (!result.valid) return error(res, 'Code incorrect ou expiré', 400);
 
-    const user = await prisma.user.findFirst({
+    const users = await prisma.user.findMany({
       where: { phone: normalizedPhone, isActive: true },
       include: { tenant: true },
     });
-    if (!user) return error(res, 'Code incorrect ou expiré', 400);
+
+    if (users.length === 0) return error(res, 'Code incorrect ou expiré', 400);
+
+    if (users.length === 1) {
+      const user = users[0];
+      const accessToken = generateToken(user.id, 'user');
+      const refreshToken = generateRefreshToken(user.id, 'user');
+      return success(res, {
+        user: { id: user.id, name: user.name, phone: user.phone },
+        accessToken,
+        refreshToken,
+      }, 'Connexion réussie');
+    }
+
+    // ── Plusieurs comptes : demander à choisir l'espace (gérant).
+    const selectionToken = jwt.sign(
+      { phone: normalizedPhone, type: 'member_selection' },
+      process.env.JWT_SECRET,
+      { expiresIn: '5m' }
+    );
+
+    return success(res, {
+      requiresSelection: true,
+      selectionToken,
+      spaces: users.map((u) => ({
+        tenantId: u.tenantId,
+        tenantName: u.tenant.name,
+        userId: u.id,
+      })),
+    }, 'Choisissez le compte à ouvrir');
+  } catch (err) {
+    console.error('memberLoginVerify error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Finaliser la connexion après choix de l'espace ─────────────
+// Utilisé uniquement quand memberLoginVerify a renvoyé requiresSelection.
+const memberLoginSelectSpace = async (req, res) => {
+  try {
+    const { selectionToken, tenantId } = req.body;
+    if (!selectionToken || !tenantId) {
+      return error(res, 'Requête invalide', 400);
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(selectionToken, process.env.JWT_SECRET);
+    } catch (_) {
+      return error(res, 'Session expirée, recommencez la connexion.', 401);
+    }
+    if (decoded.type !== 'member_selection') {
+      return error(res, 'Jeton invalide', 400);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { tenantId_phone: { tenantId, phone: decoded.phone } },
+    });
+    if (!user || !user.isActive) return error(res, 'Compte introuvable', 404);
 
     const accessToken = generateToken(user.id, 'user');
     const refreshToken = generateRefreshToken(user.id, 'user');
@@ -286,9 +354,19 @@ const memberLoginVerify = async (req, res) => {
       refreshToken,
     }, 'Connexion réussie');
   } catch (err) {
-    console.error('memberLoginVerify error:', err.message);
+    console.error('memberLoginSelectSpace error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
+};
+
+// ─── GÉRANT : Profil (lecture) ────────────────────────────────────────────
+const getTenantProfile = async (req, res) => {
+  return success(res, {
+    id: req.tenant.id,
+    name: req.tenant.name,
+    phone: req.tenant.phone,
+    photoUrl: req.tenant.photoUrl,
+  });
 };
 
 // ─── GÉRANT : Profil ──────────────────────────────────────────────────────
@@ -308,6 +386,43 @@ const updateTenantProfile = async (req, res) => {
     }, 'Profil mis à jour');
   } catch (err) {
     console.error('updateTenantProfile error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Profil (lecture) ────────────────────────────────────────────
+const getMemberProfile = async (req, res) => {
+  return success(res, {
+    id: req.user.id,
+    name: req.user.name,
+    phone: req.user.phone,
+    photoUrl: req.user.photoUrl,
+    tenantName: req.tenant.name,
+  });
+};
+
+// ─── MEMBRE : Profil (mise à jour) ────────────────────────────────────────
+// Un membre ne peut modifier que son nom et sa photo — jamais son
+// téléphone directement ici (changer de numéro nécessiterait une nouvelle
+// vérification OTP, hors scope de cet endpoint).
+const updateMemberProfile = async (req, res) => {
+  try {
+    const { name, photoUrl } = req.body;
+    if (!name || name.trim().length < 2 || name.trim().length > 100) {
+      return error(res, 'Nom invalide', 400);
+    }
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { name: name.trim(), photoUrl },
+    });
+    return success(res, {
+      id: updated.id,
+      name: updated.name,
+      phone: updated.phone,
+      photoUrl: updated.photoUrl,
+    }, 'Profil mis à jour');
+  } catch (err) {
+    console.error('updateMemberProfile error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -549,7 +664,11 @@ module.exports = {
   memberVerifyAndJoin,
   memberLoginRequestOTP,
   memberLoginVerify,
+  memberLoginSelectSpace,
+  getTenantProfile,
   updateTenantProfile,
+  getMemberProfile,
+  updateMemberProfile,
   tenantSetPin,
   tenantVerifyPin,
   tenantHasPin,
