@@ -1,5 +1,31 @@
 // src/index.js
 require('dotenv').config();
+
+// ── Synchroniser le schéma Prisma vers la base au démarrage ────────────────
+// Pourquoi ici et pas juste dans package.json "scripts.start" : certaines
+// plateformes (Render, etc.) permettent de configurer une "Start Command"
+// dans leur tableau de bord qui ignore complètement le "start" de
+// package.json. En le faisant ici, ça s'exécute quel que soit ce qui a
+// lancé le process (node src/index.js, npm start, un Procfile...).
+// Uniquement en production : en local, on garde le contrôle via
+// `npm run db:migrate` pour ne pas surprendre un dev qui lance `npm run dev`.
+if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
+  try {
+    console.log('🔄 Synchronisation du schéma Prisma avec la base...');
+    const { execSync } = require('child_process');
+    execSync('npx prisma db push --accept-data-loss', {
+      stdio: 'inherit',
+    });
+    console.log('✅ Schéma Prisma synchronisé');
+  } catch (err) {
+    // On ne bloque PAS le démarrage : si la synchro échoue (ex: schéma déjà
+    // à jour mais message d'avertissement, ou souci réseau ponctuel), l'API
+    // doit quand même démarrer — les routes qui touchent une table absente
+    // renverront une erreur 500 explicite plutôt que de tout arrêter.
+    console.error('⚠️  Échec de la synchronisation Prisma (le serveur démarre quand même):', err.message);
+  }
+}
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
