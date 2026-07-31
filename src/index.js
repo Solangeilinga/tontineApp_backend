@@ -1,31 +1,5 @@
 // src/index.js
 require('dotenv').config();
-
-// ── Synchroniser le schéma Prisma vers la base au démarrage ────────────────
-// Pourquoi ici et pas juste dans package.json "scripts.start" : certaines
-// plateformes (Render, etc.) permettent de configurer une "Start Command"
-// dans leur tableau de bord qui ignore complètement le "start" de
-// package.json. En le faisant ici, ça s'exécute quel que soit ce qui a
-// lancé le process (node src/index.js, npm start, un Procfile...).
-// Uniquement en production : en local, on garde le contrôle via
-// `npm run db:migrate` pour ne pas surprendre un dev qui lance `npm run dev`.
-if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
-  try {
-    console.log('🔄 Synchronisation du schéma Prisma avec la base...');
-    const { execSync } = require('child_process');
-    execSync('npx prisma db push --accept-data-loss', {
-      stdio: 'inherit',
-    });
-    console.log('✅ Schéma Prisma synchronisé');
-  } catch (err) {
-    // On ne bloque PAS le démarrage : si la synchro échoue (ex: schéma déjà
-    // à jour mais message d'avertissement, ou souci réseau ponctuel), l'API
-    // doit quand même démarrer — les routes qui touchent une table absente
-    // renverront une erreur 500 explicite plutôt que de tout arrêter.
-    console.error('⚠️  Échec de la synchronisation Prisma (le serveur démarre quand même):', err.message);
-  }
-}
-
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -101,6 +75,34 @@ app.listen(PORT, () => {
 
   scheduleDailyReminders();
   scheduleSubscriptionChecks();
+
+  // ── Synchroniser le schéma Prisma vers la base, EN ARRIÈRE-PLAN ─────────
+  // Volontairement APRÈS app.listen() et non-bloquant : sur un hébergeur en
+  // cold-start (ex: Render en offre gratuite), retarder l'écoute du port
+  // ajoute plusieurs secondes à CHAQUE réveil du service, ce qui fait
+  // dépasser les timeouts client pour TOUTES les requêtes, pas seulement
+  // celles touchant les nouvelles tables. On préfère démarrer tout de suite,
+  // quitte à ce que les tout premiers appels aux nouvelles routes échouent
+  // pendant les quelques secondes que dure la synchro (auto-résolu ensuite).
+  //
+  // Pourquoi dans le code et pas juste "scripts.start" de package.json :
+  // certains hébergeurs (Render...) configurent une Start Command dans leur
+  // tableau de bord qui ignore complètement le "start" de package.json.
+  if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
+    if (!process.env.DIRECT_URL) {
+      console.warn('⚠️  DIRECT_URL manquante — si DATABASE_URL passe par un pooler (Supabase, PgBouncer...), `db push` va probablement échouer ou rester bloqué. Voir .env.example.');
+    }
+    const { exec } = require('child_process');
+    console.log('🔄 Synchronisation du schéma Prisma avec la base (arrière-plan)...');
+    exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
+      if (err) {
+        console.error('⚠️  Échec de la synchronisation Prisma:', err.message);
+        return;
+      }
+      console.log('✅ Schéma Prisma synchronisé');
+      if (stdout) console.log(stdout);
+    });
+  }
 });
 
 module.exports = app;
