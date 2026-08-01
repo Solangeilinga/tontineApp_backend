@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
 const { getActiveCycle } = require('../services/cycleService');
 const { logAction } = require('../services/auditService');
+const { checkValueWithinLimit } = require('../services/subscriptionService');
 
 // ── Générer un code d'invitation unique garanti
 const generateUniqueInviteCode = async () => {
@@ -28,6 +29,20 @@ const createGroup = async (req, res) => {
   try {
     const { name, type, frequencyValue, frequencyUnit, amount, currency, description, maxMembers } = req.body;
     const tenantId = req.tenant.id;
+
+    // Le nombre de participants visé ne doit pas dépasser ce que le plan
+    // actuel permettra RÉELLEMENT d'ajouter — sinon le gérant configure un
+    // objectif que son forfait ne pourra jamais atteindre (les ajouts de
+    // membres au-delà de la limite du plan sont de toute façon bloqués,
+    // mais autant le dire clairement dès la création plutôt que de laisser
+    // découvrir le blocage plus tard, membre par membre).
+    if (maxMembers) {
+      const { allowed, reason } = await checkValueWithinLimit(
+        tenantId, 'maxMembersPerGroup', parseInt(maxMembers)
+      );
+      if (!allowed) return error(res, reason, 402);
+    }
+
     const inviteCode = await generateUniqueInviteCode();
 
     const group = await prisma.group.create({

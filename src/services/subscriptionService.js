@@ -62,18 +62,11 @@ const findNextPlanFor = (limitKey, currentPlan) => {
   return null;
 };
 
-// ─── VÉRIFIER UNE LIMITE FONCTIONNELLE (paywall) ──────────────────────────
-// Retourne { allowed: boolean, reason?: string }. Utilisé par le middleware
-// requireActiveSubscription et par les contrôleurs (createGroup, addMember...).
-const checkLimit = async (tenantId, limitKey, currentCount) => {
-  const sub = await getOrCreateSubscription(tenantId);
-  const effectivePlan = isSubscriptionValid(sub) ? sub.plan : 'FREE';
-  const config = getPlanConfig(effectivePlan);
-  const max = config.limits[limitKey];
-
-  if (max === null || max === undefined) return { allowed: true };
-  if (currentCount < max) return { allowed: true };
-
+// Construit le message d'erreur explicite : quoi, pour quel plan, et vers
+// quel plan upgrader pour débloquer. Partagé par checkLimit (compteur
+// d'éléments existants) et checkValueWithinLimit (valeur saisie par
+// l'utilisateur, ex: maxMembers choisi à la création d'un groupe).
+const buildUpgradeMessage = (limitKey, max, effectivePlan, config) => {
   const desc = LIMIT_DESCRIPTIONS[limitKey];
   const nextPlanKey = findNextPlanFor(limitKey, effectivePlan);
   const blockedText = desc ? desc.blocked(max) : `Limite du plan ${config.label} atteinte (${max})`;
@@ -91,10 +84,39 @@ const checkLimit = async (tenantId, limitKey, currentCount) => {
     upgradeText = `Passez à un forfait supérieur pour ${actionText}.`;
   }
 
-  return {
-    allowed: false,
-    reason: `${blockedText} du plan ${config.label}. ${upgradeText}`,
-  };
+  return `${blockedText} du plan ${config.label}. ${upgradeText}`;
+};
+
+// ─── VÉRIFIER UNE LIMITE FONCTIONNELLE (paywall) ──────────────────────────
+// Retourne { allowed: boolean, reason?: string }. Utilisé par le middleware
+// requireActiveSubscription et par les contrôleurs (createGroup, addMember...).
+const checkLimit = async (tenantId, limitKey, currentCount) => {
+  const sub = await getOrCreateSubscription(tenantId);
+  const effectivePlan = isSubscriptionValid(sub) ? sub.plan : 'FREE';
+  const config = getPlanConfig(effectivePlan);
+  const max = config.limits[limitKey];
+
+  if (max === null || max === undefined) return { allowed: true };
+  if (currentCount < max) return { allowed: true };
+
+  return { allowed: false, reason: buildUpgradeMessage(limitKey, max, effectivePlan, config) };
+};
+
+// ─── VÉRIFIER QU'UNE VALEUR SAISIE RESTE DANS LA LIMITE DU PLAN ───────────
+// Différent de checkLimit : ici on ne compte pas des lignes déjà en base, on
+// valide une valeur que l'utilisateur essaie de définir lui-même (ex: le
+// nombre max de participants choisi à la création d'un groupe). Empêche de
+// configurer d'entrée un objectif que le plan ne permettra jamais d'atteindre.
+const checkValueWithinLimit = async (tenantId, limitKey, requestedValue) => {
+  const sub = await getOrCreateSubscription(tenantId);
+  const effectivePlan = isSubscriptionValid(sub) ? sub.plan : 'FREE';
+  const config = getPlanConfig(effectivePlan);
+  const max = config.limits[limitKey];
+
+  if (max === null || max === undefined) return { allowed: true };
+  if (requestedValue <= max) return { allowed: true };
+
+  return { allowed: false, reason: buildUpgradeMessage(limitKey, max, effectivePlan, config) };
 };
 
 // ─── VÉRIFIER UNE FONCTIONNALITÉ BOOLÉENNE (export, journal complet...) ──
@@ -432,10 +454,79 @@ const sendExpiryReminders = async () => {
   return expiringSoon.length;
 };
 
+// Messages tournants pour ne pas répéter la même accroche à chaque relance
+// — chacun met en avant un bénéfice concret et différent d'un forfait payant.
+const UPGRADE_NUDGE_MESSAGES = [
+  {
+    title: 'Vos groupes méritent plus',
+    body: 'Passez au plan Starter (499 FCFA/mois) pour créer des groupes illimités.',
+  },
+  {
+    title: 'Ne ratez plus une cotisation',
+    body: 'Les rappels automatiques et plus de membres par groupe vous attendent avec Starter ou Pro.',
+  },
+  {
+    title: 'Exportez vos cotisations en un clic',
+    body: 'Le plan Pro (900 FCFA/mois) inclut l\'export CSV et le journal d\'audit complet.',
+  },
+];
+
+// Fréquence des relances, et nombre max avant d'arrêter (évite d'importuner
+// indéfiniment un gérant qui a fait le choix conscient de rester en FREE).
+const NUDGE_INTERVAL_DAYS = 7;
+const MAX_NUDGES = 8;
+
+// ─── RELANCES PÉRIODIQUES "PASSEZ AU PLAN SUPÉRIEUR" (cron quotidien) ─────
+// Ne cible que les comptes FREE créés depuis au moins 3 jours (laisser le
+// temps de découvrir l'appli avant de leur parler d'abonnement), et espace
+// les relances d'au moins NUDGE_INTERVAL_DAYS jours.
+const sendUpgradeNudges = async () => {
+  const now = new Date();
+  const minAccountAge = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const nudgeCutoff = new Date(now.getTime() - NUDGE_INTERVAL_DAYS * 24 * 60 * 60 * 1000);
+
+  const candidates = await prisma.subscription.findMany({
+    where: {
+      plan: 'FREE',
+      upgradeNudgeCount: { lt: MAX_NUDGES },
+      tenant: { createdAt: { lte: minAccountAge } },
+      OR: [
+        { lastUpgradeNudgeSentAt: null },
+        { lastUpgradeNudgeSentAt: { lte: nudgeCutoff } },
+      ],
+    },
+    include: { tenant: true },
+  });
+
+  for (const sub of candidates) {
+    const message = UPGRADE_NUDGE_MESSAGES[sub.upgradeNudgeCount % UPGRADE_NUDGE_MESSAGES.length];
+
+    if (sub.tenant.fcmToken) {
+      await sendPushNotification({
+        token: sub.tenant.fcmToken,
+        title: message.title,
+        body: message.body,
+        data: { type: 'UPGRADE_NUDGE' },
+      });
+    }
+
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        lastUpgradeNudgeSentAt: now,
+        upgradeNudgeCount: { increment: 1 },
+      },
+    });
+  }
+
+  return candidates.length;
+};
+
 module.exports = {
   getOrCreateSubscription,
   isSubscriptionValid,
   checkLimit,
+  checkValueWithinLimit,
   checkFeature,
   getEffectivePlan,
   initiateSubscriptionPayment,
@@ -444,4 +535,5 @@ module.exports = {
   reactivateSubscription,
   expirePastDueSubscriptions,
   sendExpiryReminders,
+  sendUpgradeNudges,
 };

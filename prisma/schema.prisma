@@ -245,6 +245,10 @@ model Subscription {
   // Empêche de renvoyer le rappel J-3 plusieurs fois pour la même période.
   // Remis à null à chaque renouvellement (voir subscriptionService.handleWebhookPayload).
   expiryReminderSentAt DateTime? @map("expiry_reminder_sent_at")
+  // Relances périodiques "passez au plan supérieur" pour les comptes
+  // restés en FREE — voir subscriptionService.sendUpgradeNudges.
+  lastUpgradeNudgeSentAt DateTime? @map("last_upgrade_nudge_sent_at")
+  upgradeNudgeCount      Int       @default(0) @map("upgrade_nudge_count")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 

@@ -4,7 +4,7 @@
 // (pas de dépendance externe type node-cron, juste un setTimeout/setInterval
 // calé sur une heure fixe — cohérent avec le reste du projet).
 
-const { expirePastDueSubscriptions, sendExpiryReminders } = require('./subscriptionService');
+const { expirePastDueSubscriptions, sendExpiryReminders, sendUpgradeNudges } = require('./subscriptionService');
 
 const RUN_HOUR = 3; // 3h du matin — après les rappels de contribution (8h),
                      // avant le pic d'usage matinal des gérants.
@@ -22,6 +22,11 @@ const runCheck = async () => {
     const reminded = await sendExpiryReminders();
     if (reminded > 0) {
       console.log(`⏱️  ${reminded} rappel(s) d'expiration J-3 envoyé(s)`);
+    }
+
+    const nudged = await sendUpgradeNudges();
+    if (nudged > 0) {
+      console.log(`⏱️  ${nudged} relance(s) d'upgrade envoyée(s) aux comptes Gratuit`);
     }
   } catch (err) {
     console.error('Erreur vérification abonnements:', err.message);
