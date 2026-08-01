@@ -68,6 +68,18 @@ router.put('/tenant/profile',
   authenticateTenant, [nameValidator], validate,
   ctrl.updateTenantProfile
 );
+router.post('/tenant/phone/request-otp',
+  authenticateTenant, otpLimiter,
+  [body('newPhone').notEmpty().withMessage('Nouveau numéro requis')],
+  validate,
+  ctrl.tenantChangePhoneRequestOTP
+);
+router.post('/tenant/phone/verify',
+  authenticateTenant,
+  [body('newPhone').notEmpty(), otpValidator],
+  validate,
+  ctrl.tenantChangePhoneVerify
+);
 
 // ── MEMBRE — Rejoindre
 router.post('/member/join/request-otp',
@@ -106,6 +118,18 @@ router.get('/member/me', authenticateUser, ctrl.getMemberProfile);
 router.put('/member/profile',
   authenticateUser, [nameValidator], validate,
   ctrl.updateMemberProfile
+);
+router.post('/member/phone/request-otp',
+  authenticateUser, otpLimiter,
+  [body('newPhone').notEmpty().withMessage('Nouveau numéro requis')],
+  validate,
+  ctrl.memberChangePhoneRequestOTP
+);
+router.post('/member/phone/verify',
+  authenticateUser,
+  [body('newPhone').notEmpty(), otpValidator],
+  validate,
+  ctrl.memberChangePhoneVerify
 );
 
 // ── MEMBRE — PIN (avec token)

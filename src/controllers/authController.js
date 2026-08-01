@@ -5,6 +5,8 @@ const { sendOTP, verifyOTP } = require('../services/otpService');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
 const { success, error, created } = require('../utils/response');
 const { normalizePhone, isValidPhone } = require('../utils/phone');
+const { logAction } = require('../services/auditService');
+const { createNotification, sendPushNotification } = require('../services/notificationService');
 const bcrypt = require('bcryptjs');
 
 // ─── GÉRANT : Inscription OTP ──────────────────────────────────────────────
@@ -427,6 +429,210 @@ const updateMemberProfile = async (req, res) => {
   }
 };
 
+// ─── GÉRANT : Changement de numéro — étape 1 (envoi OTP au nouveau numéro) ─
+const tenantChangePhoneRequestOTP = async (req, res) => {
+  try {
+    const { newPhone } = req.body;
+    const normalized = normalizePhone(newPhone);
+
+    if (!isValidPhone(normalized)) return error(res, 'Numéro invalide', 400);
+    if (normalized === req.tenant.phone) {
+      return error(res, 'C\'est déjà votre numéro actuel', 400);
+    }
+
+    const existing = await prisma.tenant.findUnique({ where: { phone: normalized } });
+    if (existing) return error(res, 'Ce numéro est déjà utilisé par un autre compte', 409);
+
+    const result = await sendOTP(normalized);
+    if (!result.success) return error(res, 'Échec de l\'envoi du code', 500);
+
+    return success(res, { dev_otp: result.dev_otp }, 'Code envoyé au nouveau numéro');
+  } catch (err) {
+    console.error('tenantChangePhoneRequestOTP error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── GÉRANT : Changement de numéro — étape 2 (vérification + application) ─
+// Une fois le numéro changé, tous les membres du gérant sont notifiés — le
+// numéro du gérant sert de contact de référence pour eux, ils doivent le
+// savoir immédiatement.
+const tenantChangePhoneVerify = async (req, res) => {
+  try {
+    const { newPhone, otp } = req.body;
+    const normalized = normalizePhone(newPhone);
+
+    const result = await verifyOTP(normalized, otp);
+    if (!result.valid) return error(res, 'Code incorrect ou expiré', 400);
+
+    // Re-vérification anti-course (deux changements simultanés vers le même numéro)
+    const existing = await prisma.tenant.findUnique({ where: { phone: normalized } });
+    if (existing) return error(res, 'Ce numéro est déjà utilisé par un autre compte', 409);
+
+    const oldPhone = req.tenant.phone;
+    const updated = await prisma.tenant.update({
+      where: { id: req.tenant.id },
+      data: { phone: normalized },
+    });
+
+    await logAction({
+      tenantId: req.tenant.id,
+      actorType: 'TENANT',
+      actorId: req.tenant.id,
+      actorName: req.tenant.name,
+      action: 'TENANT_PHONE_CHANGED',
+      targetType: 'Tenant',
+      targetId: req.tenant.id,
+      metadata: { oldPhone, newPhone: normalized },
+    });
+
+    // Notifier tous les membres actifs du gérant.
+    const members = await prisma.user.findMany({
+      where: { tenantId: req.tenant.id, isActive: true },
+    });
+    for (const member of members) {
+      await createNotification({
+        tenantId: req.tenant.id,
+        userId: member.id,
+        type: 'GENERAL',
+        title: 'Numéro du gérant mis à jour',
+        message: `${req.tenant.name} a changé de numéro de téléphone.`,
+      });
+      if (member.fcmToken) {
+        await sendPushNotification({
+          token: member.fcmToken,
+          title: 'Numéro du gérant mis à jour',
+          body: `${req.tenant.name} a changé de numéro de téléphone.`,
+          data: { type: 'GENERAL' },
+        });
+      }
+    }
+
+    return success(res, {
+      id: updated.id, name: updated.name, phone: updated.phone, photoUrl: updated.photoUrl,
+    }, 'Numéro mis à jour');
+  } catch (err) {
+    console.error('tenantChangePhoneVerify error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Changement de numéro — étape 1 ──────────────────────────────
+const memberChangePhoneRequestOTP = async (req, res) => {
+  try {
+    const { newPhone } = req.body;
+    const normalized = normalizePhone(newPhone);
+
+    if (!isValidPhone(normalized)) return error(res, 'Numéro invalide', 400);
+    if (normalized === req.user.phone) {
+      return error(res, 'C\'est déjà votre numéro actuel', 400);
+    }
+
+    // Unicité par tenant uniquement (le même numéro peut exister chez un
+    // autre gérant — cf. @@unique([tenantId, phone])).
+    const existing = await prisma.user.findUnique({
+      where: { tenantId_phone: { tenantId: req.user.tenantId, phone: normalized } },
+    });
+    if (existing) return error(res, 'Ce numéro est déjà utilisé dans ce groupe', 409);
+
+    const result = await sendOTP(normalized);
+    if (!result.success) return error(res, 'Échec de l\'envoi du code', 500);
+
+    return success(res, { dev_otp: result.dev_otp }, 'Code envoyé au nouveau numéro');
+  } catch (err) {
+    console.error('memberChangePhoneRequestOTP error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Changement de numéro — étape 2 ──────────────────────────────
+// Notifie le gérant (c'est lui qui gère les contributions/paiements avec ce
+// numéro) ET les autres membres des groupes partagés avec ce membre.
+const memberChangePhoneVerify = async (req, res) => {
+  try {
+    const { newPhone, otp } = req.body;
+    const normalized = normalizePhone(newPhone);
+
+    const result = await verifyOTP(normalized, otp);
+    if (!result.valid) return error(res, 'Code incorrect ou expiré', 400);
+
+    const existing = await prisma.user.findUnique({
+      where: { tenantId_phone: { tenantId: req.user.tenantId, phone: normalized } },
+    });
+    if (existing) return error(res, 'Ce numéro est déjà utilisé dans ce groupe', 409);
+
+    const oldPhone = req.user.phone;
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { phone: normalized },
+    });
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.user.tenantId } });
+
+    await logAction({
+      tenantId: req.user.tenantId,
+      actorType: 'USER',
+      actorId: req.user.id,
+      actorName: req.user.name,
+      action: 'MEMBER_PHONE_CHANGED',
+      targetType: 'User',
+      targetId: req.user.id,
+      metadata: { oldPhone, newPhone: normalized },
+    });
+
+    // Notifier le gérant.
+    if (tenant?.fcmToken) {
+      await sendPushNotification({
+        token: tenant.fcmToken,
+        title: 'Numéro membre mis à jour',
+        body: `${updated.name} a changé de numéro de téléphone.`,
+        data: { type: 'GENERAL' },
+      });
+    }
+
+    // Notifier les autres membres des groupes partagés (co-équipiers de tontine).
+    const sharedGroupIds = (await prisma.groupMember.findMany({
+      where: { userId: req.user.id },
+      select: { groupId: true },
+    })).map((g) => g.groupId);
+
+    if (sharedGroupIds.length > 0) {
+      const coMembers = await prisma.groupMember.findMany({
+        where: { groupId: { in: sharedGroupIds }, userId: { not: req.user.id } },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      const coMemberUsers = await prisma.user.findMany({
+        where: { id: { in: coMembers.map((c) => c.userId) } },
+      });
+      for (const co of coMemberUsers) {
+        await createNotification({
+          tenantId: req.user.tenantId,
+          userId: co.id,
+          type: 'GENERAL',
+          title: 'Numéro d\'un membre mis à jour',
+          message: `${updated.name} a changé de numéro de téléphone.`,
+        });
+        if (co.fcmToken) {
+          await sendPushNotification({
+            token: co.fcmToken,
+            title: 'Numéro d\'un membre mis à jour',
+            body: `${updated.name} a changé de numéro de téléphone.`,
+            data: { type: 'GENERAL' },
+          });
+        }
+      }
+    }
+
+    return success(res, {
+      id: updated.id, name: updated.name, phone: updated.phone, photoUrl: updated.photoUrl,
+    }, 'Numéro mis à jour');
+  } catch (err) {
+    console.error('memberChangePhoneVerify error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 // ─── GÉRANT : PIN ─────────────────────────────────────────────────────────
 const tenantSetPin = async (req, res) => {
   try {
@@ -667,8 +873,12 @@ module.exports = {
   memberLoginSelectSpace,
   getTenantProfile,
   updateTenantProfile,
+  tenantChangePhoneRequestOTP,
+  tenantChangePhoneVerify,
   getMemberProfile,
   updateMemberProfile,
+  memberChangePhoneRequestOTP,
+  memberChangePhoneVerify,
   tenantSetPin,
   tenantVerifyPin,
   tenantHasPin,

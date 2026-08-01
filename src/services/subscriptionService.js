@@ -31,6 +31,37 @@ const isSubscriptionValid = (sub) => {
   return new Date(sub.currentPeriodEnd) > new Date();
 };
 
+// Libellés humains + accroche par limite, pour composer un message d'erreur
+// qui dit explicitement CE QUI est bloqué (jamais un message générique).
+const LIMIT_DESCRIPTIONS = {
+  maxGroups: {
+    blocked: (max) => `Vous avez atteint la limite de ${max} groupe${max > 1 ? 's' : ''}`,
+    action: 'créer un autre groupe',
+  },
+  maxMembersPerGroup: {
+    blocked: (max) => `Ce groupe a atteint la limite de ${max} membres`,
+    action: 'ajouter un autre membre à ce groupe',
+  },
+};
+
+// Ordre des plans, du moins cher au plus cher — sert à trouver le premier
+// plan qui lève réellement la limite atteinte.
+const PLAN_ORDER = ['FREE', 'STARTER', 'PRO'];
+
+const findNextPlanFor = (limitKey, currentPlan) => {
+  const currentMax = getPlanConfig(currentPlan).limits[limitKey];
+  const startIndex = PLAN_ORDER.indexOf(currentPlan) + 1;
+  for (let i = startIndex; i < PLAN_ORDER.length; i++) {
+    const candidate = PLAN_ORDER[i];
+    const candidateMax = getPlanConfig(candidate).limits[limitKey];
+    // null/undefined = illimité, ou une limite strictement supérieure.
+    if (candidateMax === null || candidateMax === undefined || candidateMax > currentMax) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
 // ─── VÉRIFIER UNE LIMITE FONCTIONNELLE (paywall) ──────────────────────────
 // Retourne { allowed: boolean, reason?: string }. Utilisé par le middleware
 // requireActiveSubscription et par les contrôleurs (createGroup, addMember...).
@@ -43,9 +74,26 @@ const checkLimit = async (tenantId, limitKey, currentCount) => {
   if (max === null || max === undefined) return { allowed: true };
   if (currentCount < max) return { allowed: true };
 
+  const desc = LIMIT_DESCRIPTIONS[limitKey];
+  const nextPlanKey = findNextPlanFor(limitKey, effectivePlan);
+  const blockedText = desc ? desc.blocked(max) : `Limite du plan ${config.label} atteinte (${max})`;
+  const actionText = desc ? desc.action : 'continuer';
+
+  let upgradeText;
+  if (nextPlanKey) {
+    const nextPlan = getPlanConfig(nextPlanKey);
+    const nextLimit = nextPlan.limits[limitKey];
+    const nextLimitText = nextLimit === null || nextLimit === undefined
+      ? 'illimité'
+      : `jusqu'à ${nextLimit}`;
+    upgradeText = `Passez au plan ${nextPlan.label} (${nextPlan.amount} FCFA/mois, ${nextLimitText}) pour ${actionText}.`;
+  } else {
+    upgradeText = `Passez à un forfait supérieur pour ${actionText}.`;
+  }
+
   return {
     allowed: false,
-    reason: `Limite du plan ${config.label} atteinte (${max}). Passez à un forfait supérieur pour continuer.`,
+    reason: `${blockedText} du plan ${config.label}. ${upgradeText}`,
   };
 };
 
