@@ -817,14 +817,32 @@ const userHasPin = async (req, res) => {
 // ─── MEMBRE : PIN session verrouillée ─────────────────────────────────────
 const userVerifyPinLocked = async (req, res) => {
   try {
-    const { phone, pin } = req.body;
+    const { phone, pin, userId } = req.body;
     if (!pin || !/^\d{4}$/.test(pin)) return error(res, 'PIN invalide', 400);
 
-    const normalizedPhone = normalizePhone(phone);
-    const user = await prisma.user.findFirst({
-      where: { phone: normalizedPhone, isActive: true },
-      select: { id: true, pinHash: true, name: true, phone: true },
-    });
+    let user;
+    if (userId) {
+      // Cas normal : le client connaît précisément quel compte il déverrouille
+      // (userId mis en cache lors de la dernière connexion). Aucune
+      // ambiguïté possible, même si ce numéro est membre chez plusieurs
+      // gérants différents.
+      user = await prisma.user.findFirst({
+        where: { id: userId, isActive: true },
+        select: { id: true, pinHash: true, name: true, phone: true },
+      });
+    } else {
+      // Repli pour les anciennes versions de l'app qui n'envoient pas encore
+      // userId : on devine via le téléphone. ATTENTION — si ce numéro est
+      // membre chez plusieurs gérants, ceci peut retomber sur le mauvais
+      // compte (et donc rejeter un PIN pourtant correct). À supprimer une
+      // fois toutes les apps en circulation mises à jour.
+      console.warn('⚠️  userVerifyPinLocked sans userId — repli ambigu par téléphone seul.');
+      const normalizedPhone = normalizePhone(phone);
+      user = await prisma.user.findFirst({
+        where: { phone: normalizedPhone, isActive: true },
+        select: { id: true, pinHash: true, name: true, phone: true },
+      });
+    }
 
     if (!user || !user.pinHash) {
       return error(res, 'PIN incorrect', 401);
