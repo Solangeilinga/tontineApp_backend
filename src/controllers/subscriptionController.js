@@ -1,6 +1,7 @@
 // src/controllers/subscriptionController.js
 const { success, error } = require('../utils/response');
 const { PLANS, getPlanConfig } = require('../config/plans');
+const { isOperatorAllowed, isOperatorSlugAllowed } = require('../config/operators');
 const sebpay = require('../services/sebpayService');
 const subscriptionService = require('../services/subscriptionService');
 
@@ -28,13 +29,16 @@ const getMySubscription = async (req, res) => {
   }
 };
 
-// ─── LISTE DES OPÉRATEURS (proxy SebPay, pour afficher OTP si requis) ────
+// ─── LISTE DES OPÉRATEURS (proxy SebPay, filtré à Orange/Moov pour le
+// lancement — voir src/config/operators.js pour en ouvrir d'autres) ───────
 const getOperators = async (req, res) => {
   try {
     const { country } = req.query;
     const result = await sebpay.getOperators(country);
     if (!result.success) return error(res, result.message, 502);
-    return success(res, result.data);
+
+    const filtered = (result.data || []).filter(isOperatorAllowed);
+    return success(res, filtered);
   } catch (err) {
     console.error('getOperators error:', err.message);
     return error(res, 'Erreur serveur', 500);
@@ -51,6 +55,9 @@ const subscribe = async (req, res) => {
     }
     if (!phone || !operator) {
       return error(res, 'Téléphone et opérateur requis', 400);
+    }
+    if (!isOperatorSlugAllowed(operator)) {
+      return error(res, 'Cet opérateur n\'est pas encore disponible. Utilisez Orange Money ou Moov Money.', 400);
     }
 
     const result = await subscriptionService.initiateSubscriptionPayment({
