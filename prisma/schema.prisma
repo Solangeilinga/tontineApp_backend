@@ -359,3 +359,29 @@ enum PaymentStatus {
   APPROVED
   REJECTED
 }
+
+// ─── DELETION REQUESTS (formulaire web public, sans app) ──────────────────
+// Exigence Google Play "Account Deletion" : offrir un moyen d'demander la
+// suppression du compte SANS avoir l'app installée. Ce n'est PAS une
+// suppression automatique en libre-service (un simple numéro de téléphone
+// ne suffit pas à prouver l'identité — risque d'abus/harcèlement), mais une
+// demande tracée, traitée manuellement sous 30 jours (délai annoncé dans la
+// politique de confidentialité). La suppression réelle en libre-service et
+// immédiate reste possible DANS l'app (authentifiée + PIN), voir
+// tenantDeleteAccount/memberDeleteAccount dans authController.js.
+model DeletionRequest {
+  id        String                @id @default(uuid())
+  name      String
+  phone     String
+  message   String?
+  status    DeletionRequestStatus @default(PENDING)
+  createdAt DateTime              @default(now()) @map("created_at")
+  processedAt DateTime?           @map("processed_at")
+
+  @@map("deletion_requests")
+}
+
+enum DeletionRequestStatus {
+  PENDING
+  PROCESSED
+}

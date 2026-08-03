@@ -7,6 +7,7 @@ const { success, error, created } = require('../utils/response');
 const { normalizePhone, isValidPhone } = require('../utils/phone');
 const { logAction } = require('../services/auditService');
 const { createNotification, sendPushNotification } = require('../services/notificationService');
+const { cancelSubscription } = require('../services/subscriptionService');
 const bcrypt = require('bcryptjs');
 
 // ─── GÉRANT : Inscription OTP ──────────────────────────────────────────────
@@ -633,6 +634,151 @@ const memberChangePhoneVerify = async (req, res) => {
   }
 };
 
+// ─── GÉRANT : Suppression de compte ───────────────────────────────────────
+// Anonymisation plutôt que suppression SQL brute : les groupes/cotisations
+// restent en base (intégrité des historiques pour les membres, obligations
+// comptables), mais toute information identifiante du gérant est effacée et
+// le compte devient définitivement inutilisable. Confirmé par PIN — action
+// irréversible, on ne se contente pas d'un bouton sans friction.
+const tenantDeleteAccount = async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(pin)) return error(res, 'PIN invalide', 400);
+    if (!req.tenant.pinHash) {
+      return error(res, 'Aucun PIN configuré sur ce compte — impossible de confirmer la suppression.', 400);
+    }
+
+    const validPin = await bcrypt.compare(pin, req.tenant.pinHash);
+    if (!validPin) return error(res, 'PIN incorrect', 401);
+
+    const originalName = req.tenant.name;
+    const tenantId = req.tenant.id;
+
+    // Annuler l'abonnement immédiatement (pas de remboursement au prorata —
+    // cohérent avec la politique déjà en place pour l'annulation volontaire).
+    try {
+      await cancelSubscription({ tenant: req.tenant, immediate: true });
+    } catch (_) {
+      // Ne bloque pas la suppression si l'abonnement était déjà en FREE.
+    }
+
+    // Fermer tous les groupes du gérant — ils ne peuvent plus être gérés.
+    const groups = await prisma.group.findMany({ where: { tenantId, isActive: true } });
+    if (groups.length > 0) {
+      await prisma.group.updateMany({
+        where: { tenantId, isActive: true },
+        data: { isActive: false },
+      });
+    }
+
+    // Anonymiser (jamais de suppression SQL directe — voir commentaire du modèle)
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        name: 'Compte supprimé',
+        phone: `deleted_${tenantId}`,
+        photoUrl: null,
+        pinHash: null,
+        fcmToken: null,
+        isActive: false,
+      },
+    });
+
+    await logAction({
+      tenantId,
+      actorType: 'TENANT',
+      actorId: tenantId,
+      actorName: originalName,
+      action: 'TENANT_ACCOUNT_DELETED',
+      targetType: 'Tenant',
+      targetId: tenantId,
+    });
+
+    // Prévenir tous les membres actifs que leurs groupes sont fermés.
+    const members = await prisma.user.findMany({ where: { tenantId, isActive: true } });
+    for (const member of members) {
+      await createNotification({
+        tenantId,
+        userId: member.id,
+        type: 'GENERAL',
+        title: 'Compte du gérant supprimé',
+        message: `${originalName} a supprimé son compte. Vos groupes avec ce gérant sont maintenant fermés.`,
+      });
+      if (member.fcmToken) {
+        await sendPushNotification({
+          token: member.fcmToken,
+          title: 'Compte du gérant supprimé',
+          body: `${originalName} a supprimé son compte. Vos groupes sont maintenant fermés.`,
+          data: { type: 'GENERAL' },
+        });
+      }
+    }
+
+    return success(res, null, 'Compte supprimé');
+  } catch (err) {
+    console.error('tenantDeleteAccount error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
+// ─── MEMBRE : Suppression de compte ───────────────────────────────────────
+// Ne supprime QUE l'appartenance à CE gérant (cf. un même numéro peut être
+// membre chez plusieurs gérants, chacun via une ligne User distincte) — pas
+// les autres comptes membre éventuels sous d'autres gérants.
+const memberDeleteAccount = async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(pin)) return error(res, 'PIN invalide', 400);
+    if (!req.user.pinHash) {
+      return error(res, 'Aucun PIN configuré sur ce compte — impossible de confirmer la suppression.', 400);
+    }
+
+    const validPin = await bcrypt.compare(pin, req.user.pinHash);
+    if (!validPin) return error(res, 'PIN incorrect', 401);
+
+    const originalName = req.user.name;
+    const userId = req.user.id;
+    const tenantId = req.user.tenantId;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: 'Membre supprimé',
+        phone: `deleted_${userId}`,
+        photoUrl: null,
+        pinHash: null,
+        fcmToken: null,
+        isActive: false,
+      },
+    });
+
+    await logAction({
+      tenantId,
+      actorType: 'USER',
+      actorId: userId,
+      actorName: originalName,
+      action: 'MEMBER_ACCOUNT_DELETED',
+      targetType: 'User',
+      targetId: userId,
+    });
+
+    // Prévenir le gérant.
+    if (req.tenant?.fcmToken) {
+      await sendPushNotification({
+        token: req.tenant.fcmToken,
+        title: 'Un membre a supprimé son compte',
+        body: `${originalName} a supprimé son compte.`,
+        data: { type: 'GENERAL' },
+      });
+    }
+
+    return success(res, null, 'Compte supprimé');
+  } catch (err) {
+    console.error('memberDeleteAccount error:', err.message);
+    return error(res, 'Erreur serveur', 500);
+  }
+};
+
 // ─── GÉRANT : PIN ─────────────────────────────────────────────────────────
 const tenantSetPin = async (req, res) => {
   try {
@@ -897,6 +1043,8 @@ module.exports = {
   updateMemberProfile,
   memberChangePhoneRequestOTP,
   memberChangePhoneVerify,
+  tenantDeleteAccount,
+  memberDeleteAccount,
   tenantSetPin,
   tenantVerifyPin,
   tenantHasPin,

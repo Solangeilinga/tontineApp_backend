@@ -80,6 +80,10 @@ router.post('/tenant/phone/verify',
   validate,
   ctrl.tenantChangePhoneVerify
 );
+router.post('/tenant/account/delete',
+  authenticateTenant, [pinValidator], validate,
+  ctrl.tenantDeleteAccount
+);
 
 // ── MEMBRE — Rejoindre
 router.post('/member/join/request-otp',
@@ -130,6 +134,10 @@ router.post('/member/phone/verify',
   [body('newPhone').notEmpty(), otpValidator],
   validate,
   ctrl.memberChangePhoneVerify
+);
+router.post('/member/account/delete',
+  authenticateUser, [pinValidator], validate,
+  ctrl.memberDeleteAccount
 );
 
 // ── MEMBRE — PIN (avec token)

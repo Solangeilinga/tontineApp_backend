@@ -12,20 +12,23 @@ const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
 const notificationRoutes = require('./routes/notifications');
 const subscriptionRoutes = require('./routes/subscriptions');
+const publicRoutes = require('./routes/public');
 
 const app = express();
 
 // ── Trust proxy
 app.set('trust proxy', 1);
 
-// ── CORS — restreindre en production
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? ['https://matontine.app'] // ton domaine
-  : ['*'];
-
+// ── CORS ─────────────────────────────────────────────────────────────────
+// L'API n'utilise QUE des tokens Bearer (jamais de cookies de session), donc
+// autoriser toute origine ne présente pas de risque CSRF classique — un
+// site tiers ne peut de toute façon pas lire le token d'un autre onglet/app.
+// Nécessaire notamment pour que le site vitrine (formulaire de demande de
+// suppression de compte, hébergé sur un domaine externe) puisse appeler
+// POST /api/public/deletion-requests sans être bloqué par le navigateur.
 app.use(helmet());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -43,6 +46,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/public', publicRoutes);
 
 // ── Health check
 app.get('/health', (req, res) => {
