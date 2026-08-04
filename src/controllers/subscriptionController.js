@@ -1,4 +1,5 @@
 // src/controllers/subscriptionController.js
+const logger = require('../config/logger');
 const { success, error } = require('../utils/response');
 const { PLANS, getPlanConfig } = require('../config/plans');
 const { isOperatorAllowed, isOperatorSlugAllowed } = require('../config/operators');
@@ -24,7 +25,7 @@ const getMySubscription = async (req, res) => {
       canReactivate: sub.status === 'CANCELED' && isValid,
     });
   } catch (err) {
-    console.error('getMySubscription error:', err.message);
+    logger.error('getMySubscription error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -40,7 +41,7 @@ const getOperators = async (req, res) => {
     const filtered = (result.data || []).filter(isOperatorAllowed);
     return success(res, filtered);
   } catch (err) {
-    console.error('getOperators error:', err.message);
+    logger.error('getOperators error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -72,7 +73,7 @@ const subscribe = async (req, res) => {
     if (!result.success) return error(res, result.message, 400);
     return success(res, result.data, result.message);
   } catch (err) {
-    console.error('subscribe error:', err.message);
+    logger.error('subscribe error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -88,7 +89,7 @@ const cancel = async (req, res) => {
     if (!result.success) return error(res, result.message, 400);
     return success(res, null, result.message);
   } catch (err) {
-    console.error('cancel error:', err.message);
+    logger.error('cancel error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -100,7 +101,7 @@ const reactivate = async (req, res) => {
     if (!result.success) return error(res, result.message, 400);
     return success(res, null, result.message);
   } catch (err) {
-    console.error('reactivate error:', err.message);
+    logger.error('reactivate error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -116,7 +117,7 @@ const handleWebhook = async (req, res) => {
     const rawBody = req.body; // Buffer, grâce à express.raw()
 
     if (!sebpay.verifyWebhookSignature(rawBody.toString('utf8'), signature)) {
-      console.warn('⚠️  Webhook SebPay avec signature invalide — rejeté.');
+      logger.warn('⚠️  Webhook SebPay avec signature invalide — rejeté.');
       return res.status(401).json({ success: false, message: 'Signature invalide' });
     }
 
@@ -127,7 +128,7 @@ const handleWebhook = async (req, res) => {
     // ou déjà traité — SebPay ne doit pas retry inutilement.
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error('handleWebhook error:', err.message);
+    logger.error('handleWebhook error:', err.message);
     // On répond quand même 200 pour éviter des retries en boucle sur une
     // erreur de notre côté qui ne se résoudra pas toute seule ; l'erreur
     // reste visible dans les logs pour investigation manuelle.

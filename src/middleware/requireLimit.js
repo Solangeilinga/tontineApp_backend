@@ -7,6 +7,7 @@
 // Exemple d'utilisation dans une route :
 //   router.post('/', authenticateTenant, requireLimit('maxGroups', countTenantGroups), groupCtrl.createGroup);
 
+const logger = require('../config/logger');
 const { error } = require('../utils/response');
 const { checkLimit } = require('../services/subscriptionService');
 
@@ -21,7 +22,7 @@ const requireLimit = (limitKey, getCurrentCount) => async (req, res, next) => {
 
     next();
   } catch (err) {
-    console.error('requireLimit error:', err.message);
+    logger.error('requireLimit error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

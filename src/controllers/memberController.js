@@ -1,4 +1,5 @@
 // src/controllers/memberController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
 const { createNotification } = require('../services/notificationService');
@@ -21,7 +22,7 @@ const getMembers = async (req, res) => {
 
     return success(res, members);
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -90,7 +91,7 @@ const addMember = async (req, res) => {
 
     return created(res, member, 'Membre ajouté avec succès');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -137,7 +138,7 @@ const updateMember = async (req, res) => {
 
     return success(res, updatedUser, 'Membre modifié avec succès');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -173,7 +174,7 @@ const removeMember = async (req, res) => {
 
     return success(res, null, 'Membre retiré du groupe');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -211,7 +212,7 @@ const updateTurnOrder = async (req, res) => {
 
     return success(res, null, 'Ordre des tours mis à jour');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -271,7 +272,7 @@ const getMemberTurns = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };

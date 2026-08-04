@@ -1,4 +1,5 @@
 // src/controllers/auditController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const { getEffectivePlan } = require('../services/subscriptionService');
@@ -68,7 +69,7 @@ const getGroupAuditLog = async (req, res) => {
       totalCount,
     });
   } catch (err) {
-    console.error('getGroupAuditLog error:', err.message);
+    logger.error('getGroupAuditLog error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

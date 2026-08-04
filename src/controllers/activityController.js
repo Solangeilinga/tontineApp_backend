@@ -1,4 +1,5 @@
 // src/controllers/activityController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const { formatActivity } = require('../utils/activityFormatter');
@@ -30,7 +31,7 @@ const getGroupActivity = async (req, res) => {
 
     return success(res, activities);
   } catch (err) {
-    console.error('getGroupActivity error:', err.message);
+    logger.error('getGroupActivity error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -53,7 +54,7 @@ const dismissActivity = async (req, res) => {
 
     return success(res, null, 'Activité supprimée de la liste');
   } catch (err) {
-    console.error('dismissActivity error:', err.message);
+    logger.error('dismissActivity error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -114,7 +115,7 @@ const getGerantDashboard = async (req, res) => {
 
     return success(res, dashboard);
   } catch (err) {
-    console.error('getGerantDashboard error:', err.message);
+    logger.error('getGerantDashboard error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

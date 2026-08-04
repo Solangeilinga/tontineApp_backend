@@ -6,6 +6,7 @@
 // demander la suppression du compte de quelqu'un d'autre). Ici, la demande
 // est simplement enregistrée et traitée manuellement — délai annoncé dans
 // la politique de confidentialité (30 jours).
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const { normalizePhone } = require('../utils/phone');
@@ -31,7 +32,7 @@ const createDeletionRequest = async (req, res) => {
 
     return success(res, null, 'Votre demande a été enregistrée. Elle sera traitée sous 30 jours maximum.');
   } catch (err) {
-    console.error('createDeletionRequest error:', err.message);
+    logger.error('createDeletionRequest error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

@@ -1,4 +1,5 @@
 // src/services/notificationService.js
+const logger = require('../config/logger');
 const admin = require('../config/firebase');
 const prisma = require('../config/database');
 const { logAction } = require('./auditService');
@@ -7,7 +8,7 @@ const { logAction } = require('./auditService');
 const sendSMS = async (phone, message) => {
   try {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[SMS SANDBOX] To: ${phone} | Message: ${message}`);
+      logger.info(`[SMS SANDBOX] To: ${phone} | Message: ${message}`);
       return;
     }
 
@@ -26,17 +27,17 @@ const sendSMS = async (phone, message) => {
     const response = await sms.send(smsPayload);
 
     const recipient = response?.SMSMessageData?.Recipients?.[0];
-    console.log('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
+    logger.info('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
 
     if (!recipient || recipient.status !== 'Success') {
       const reason = response?.SMSMessageData?.Message || recipient?.status || 'réponse invalide';
-      console.error(`❌ Livraison SMS échouée à ${phone} — ${reason}${recipient?.statusCode ? ` (code ${recipient.statusCode})` : ''}`);
+      logger.error(`❌ Livraison SMS échouée à ${phone} — ${reason}${recipient?.statusCode ? ` (code ${recipient.statusCode})` : ''}`);
       return;
     }
 
-    console.log(`SMS envoye a ${phone} — coût: ${recipient.cost}`);
+    logger.info(`SMS envoye a ${phone} — coût: ${recipient.cost}`);
   } catch (err) {
-    console.error('Erreur envoi SMS:', err.message);
+    logger.error('Erreur envoi SMS:', err.message);
   }
 };
 
@@ -55,9 +56,9 @@ const sendPushNotification = async ({ token, title, body, data = {} }) => {
       },
     });
 
-    console.log('Push envoye');
+    logger.info('Push envoye');
   } catch (err) {
-    console.error('Erreur push:', err.message);
+    logger.error('Erreur push:', err.message);
   }
 };
 
@@ -82,7 +83,7 @@ const createNotification = async ({
       },
     });
   } catch (err) {
-    console.error('Erreur creation notification:', err.message);
+    logger.error('Erreur creation notification:', err.message);
   }
 };
 
@@ -105,12 +106,12 @@ const scheduleDailyReminders = () => {
     setInterval(sendDailyReminders, 24 * 60 * 60 * 1000);
   }, msUntil8AM);
 
-  console.log(`Rappels planifies dans ${Math.round(msUntil8AM / 1000 / 60)} minutes`);
+  logger.info(`Rappels planifies dans ${Math.round(msUntil8AM / 1000 / 60)} minutes`);
 };
 
 const sendDailyReminders = async () => {
   try {
-    console.log('Envoi des rappels quotidiens...');
+    logger.info('Envoi des rappels quotidiens...');
 
     const today = new Date();
     const remindDays = [1, 3, 7]; // J-1, J-3, J-7
@@ -172,7 +173,7 @@ const sendDailyReminders = async () => {
       }
 
       if (contributions.length > 0) {
-        console.log(`${contributions.length} rappels envoyes pour J-${daysAhead}`);
+        logger.info(`${contributions.length} rappels envoyes pour J-${daysAhead}`);
       }
     }
 
@@ -205,7 +206,7 @@ const sendDailyReminders = async () => {
       });
     }
     if (overdueContributions.length > 0) {
-      console.log(`${overdueContributions.length} cotisation(s) marquée(s) en retard`);
+      logger.info(`${overdueContributions.length} cotisation(s) marquée(s) en retard`);
     }
 
     // ── TOURS EN RETARD (scheduledDate dépassée, toujours UPCOMING) ─────────
@@ -239,10 +240,10 @@ const sendDailyReminders = async () => {
       });
     }
     if (overdueTurns.length > 0) {
-      console.log(`${overdueTurns.length} rappel(s) de tour en retard envoyé(s) (une seule fois)`);
+      logger.info(`${overdueTurns.length} rappel(s) de tour en retard envoyé(s) (une seule fois)`);
     }
   } catch (err) {
-    console.error('Erreur rappels quotidiens:', err.message);
+    logger.error('Erreur rappels quotidiens:', err.message);
   }
 };
 
@@ -294,7 +295,7 @@ const notifyContributionOverdue = async ({ tenantId, group, user, gerant, roundN
       metadata: { memberName: user.name, roundNumber, dueDate, auto: true },
     });
   } catch (err) {
-    console.error('Erreur notification retard cotisation:', err.message);
+    logger.error('Erreur notification retard cotisation:', err.message);
   }
 };
 
@@ -346,7 +347,7 @@ const notifyTurnOverdue = async ({ tenantId, group, user, gerant, turnNumber, sc
       metadata: { memberName: user.name, turnNumber, scheduledDate, auto: true },
     });
   } catch (err) {
-    console.error('Erreur notification retard tour:', err.message);
+    logger.error('Erreur notification retard tour:', err.message);
   }
 };
 
@@ -367,7 +368,7 @@ const notifyMemberJoined = async ({ tenantId, group, user }) => {
       data: { groupId: group.id },
     });
   } catch (err) {
-    console.error('Erreur notification nouveau membre:', err.message);
+    logger.error('Erreur notification nouveau membre:', err.message);
   }
 };
 
@@ -396,7 +397,7 @@ const notifyTurnReceived = async ({ tenantId, group, user, turnNumber }) => {
       data: { groupId: group.id, turnNumber },
     });
   } catch (err) {
-    console.error('Erreur notification tour recu:', err.message);
+    logger.error('Erreur notification tour recu:', err.message);
   }
 };
 

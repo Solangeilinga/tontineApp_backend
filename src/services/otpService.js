@@ -1,4 +1,5 @@
 // src/services/otpService.js
+const logger = require('../config/logger');
 const AfricasTalking = require('africastalking');
 const { getRedisClient } = require('../config/redis');
 const { generateOTP } = require('../utils/otp');
@@ -34,7 +35,7 @@ const sendOTP = async (phone) => {
 
   // En développement, on affiche l'OTP dans les logs
   if (process.env.NODE_ENV === 'development') {
-    console.log(`🔑 OTP pour ${phone}: ${otp}`);
+    logger.info(`🔑 OTP pour ${phone}: ${otp}`);
     return { success: true, dev_otp: otp };
   }
 
@@ -51,17 +52,17 @@ const sendOTP = async (phone) => {
     const response = await sms.send(smsPayload);
 
     const recipient = response?.SMSMessageData?.Recipients?.[0];
-    console.log('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
+    logger.info('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
 
     if (!recipient || recipient.status !== 'Success') {
       const reason = response?.SMSMessageData?.Message || recipient?.status || 'réponse invalide';
       throw new Error(`Livraison échouée — ${reason}${recipient?.statusCode ? ` (code ${recipient.statusCode})` : ''}`);
     }
 
-    console.log(`✅ OTP envoyé par SMS à ${phone} — coût: ${recipient.cost}`);
+    logger.info(`✅ OTP envoyé par SMS à ${phone} — coût: ${recipient.cost}`);
     return { success: true };
   } catch (err) {
-    console.error('❌ Erreur envoi SMS:', err.message);
+    logger.error('❌ Erreur envoi SMS:', err.message);
     // Supprimer l'OTP de Redis si envoi échoue
     await redis.del(key);
     throw new Error("Échec de l'envoi du SMS. Réessayez.");

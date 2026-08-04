@@ -1,8 +1,17 @@
 // src/index.js
 require('dotenv').config();
+
+// Sentry DOIT être initialisé avant tout le reste (avant même express),
+// pour pouvoir instrumenter automatiquement les requêtes/erreurs.
+// No-op si SENTRY_DSN n'est pas défini (voir src/config/sentry.js).
+const sentryConfig = require('./config/sentry');
+sentryConfig.init();
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+const pinoHttp = require('pino-http');
+const logger = require('./config/logger');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const { scheduleDailyReminders } = require('./services/notificationService');
 const { scheduleSubscriptionChecks } = require('./services/subscriptionCron');
@@ -61,6 +70,15 @@ app.use(express.json({ limit: '10kb' })); // Limite taille requête
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(generalLimiter);
 
+// ── Logs structurés de chaque requête (méthode, route, statut, durée) ─────
+app.use(pinoHttp({
+  logger,
+  // Réduit le bruit : pas besoin d'un log complet par requête réussie sur
+  // le health check, sinon les vraies requêtes se noient dans le bruit.
+  autoLogging: { ignore: (req) => req.url === '/health' },
+  redact: ['req.headers.authorization'],
+}));
+
 // ── Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
@@ -82,16 +100,23 @@ app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route introuvable' });
 });
 
+// ── Sentry : capture les erreurs AVANT le handler d'erreur générique
+// ci-dessous, pour que chaque exception non catchée dans une route
+// remonte automatiquement sur sentry.io (stack trace, requête concernée,
+// utilisateur si renseigné). No-op silencieux si SENTRY_DSN est absent.
+if (sentryConfig.isEnabled) {
+  sentryConfig.Sentry.setupExpressErrorHandler(app);
+}
+
 // ── Erreur globale
 app.use((err, req, res, next) => {
-  console.error('💥 Erreur non gérée:', err.message);
+  logger.error({ err }, 'Erreur non gérée');
   res.status(500).json({ success: false, message: 'Erreur serveur interne' });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 MaTontine API démarrée sur le port ${PORT}`);
-  console.log(`   ENV: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`🚀 MaTontine API démarrée sur le port ${PORT} (ENV: ${process.env.NODE_ENV || 'development'})`);
 
   if (process.env.FIREBASE_PROJECT_ID) {
     initFirebase();
@@ -123,7 +148,7 @@ app.listen(PORT, () => {
   //      code applicatif (qui ignore de toute façon souvent "start" de
   //      package.json au profit d'une Start Command dédiée).
   if (process.env.NODE_ENV === 'production' && !process.env.CI) {
-    console.log('ℹ️  Rappel : les migrations Prisma doivent être appliquées via `npm run release` (prisma migrate deploy) en étape de déploiement, pas au démarrage du serveur.');
+    logger.info('Rappel : les migrations Prisma doivent être appliquées via `npm run release` (prisma migrate deploy) en étape de déploiement, pas au démarrage du serveur.');
   }
 });
 

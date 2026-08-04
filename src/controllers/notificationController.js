@@ -1,4 +1,5 @@
 // src/controllers/notificationController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 
@@ -29,7 +30,7 @@ const getNotifications = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -51,7 +52,7 @@ const deleteNotification = async (req, res) => {
 
     return success(res, null, 'Notification supprimée');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -65,7 +66,7 @@ const getUnreadCount = async (req, res) => {
     });
     return success(res, { count });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -91,7 +92,7 @@ const markAsRead = async (req, res) => {
 
     return success(res, null, 'Notification marquée comme lue');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -108,7 +109,7 @@ const markAllAsRead = async (req, res) => {
 
     return success(res, null, 'Toutes les notifications marquées comme lues');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -133,7 +134,7 @@ const updateFcmToken = async (req, res) => {
 
     return success(res, null, 'Token FCM mis à jour');
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     return error(res, 'Erreur serveur', 500);
   }
 };

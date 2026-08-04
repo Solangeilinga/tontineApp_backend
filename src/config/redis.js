@@ -1,4 +1,5 @@
 // src/config/redis.js
+const logger = require('../config/logger');
 const { createClient } = require('redis');
 
 let redisClient;
@@ -8,11 +9,11 @@ const getRedisClient = async () => {
     redisClient = createClient({ url: process.env.REDIS_URL });
 
     redisClient.on('error', (err) => {
-      console.error('❌ Redis Client Error:', err);
+      logger.error('❌ Redis Client Error:', err);
     });
 
     redisClient.on('connect', () => {
-      console.log('✅ Redis connecté');
+      logger.info('✅ Redis connecté');
     });
 
     await redisClient.connect();

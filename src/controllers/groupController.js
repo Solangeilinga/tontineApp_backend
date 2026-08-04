@@ -1,4 +1,5 @@
 // src/controllers/groupController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error, created } = require('../utils/response');
 const { getActiveCycle } = require('../services/cycleService');
@@ -74,27 +75,45 @@ const createGroup = async (req, res) => {
 
     return created(res, group, 'Groupe créé avec succès');
   } catch (err) {
-    console.error('createGroup error:', err.message);
+    logger.error('createGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
 
 const getGroups = async (req, res) => {
   try {
-    const groups = await prisma.group.findMany({
-      where: { tenantId: req.tenant.id },
-      include: { _count: { select: { groupMembers: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Pagination optionnelle (rétro-compatible : sans page/pageSize, on
+    // renvoie tout — un tenant a rarement plus d'une poignée de groupes,
+    // contrairement aux cotisations qui, elles, s'accumulent cycle après
+    // cycle. On plafonne quand même à 100 par défaut pour éviter un abus.
+    const page = req.query.page ? Math.max(1, parseInt(req.query.page, 10) || 1) : null;
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+
+    const where = { tenantId: req.tenant.id };
+    const [total, groups] = await Promise.all([
+      prisma.group.count({ where }),
+      prisma.group.findMany({
+        where,
+        include: { _count: { select: { groupMembers: true } } },
+        orderBy: { createdAt: 'desc' },
+        ...(page ? { skip: (page - 1) * pageSize, take: pageSize } : { take: 100 }),
+      }),
+    ]);
 
     const enriched = groups.map(g => ({
       ...g,
       isFull: g.maxMembers !== null && g._count.groupMembers >= g.maxMembers,
     }));
 
+    if (page) {
+      return success(res, {
+        items: enriched,
+        pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      });
+    }
     return success(res, enriched);
   } catch (err) {
-    console.error('getGroups error:', err.message);
+    logger.error('getGroups error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -125,7 +144,7 @@ const getGroup = async (req, res) => {
       isFull: group.maxMembers !== null && group._count.groupMembers >= group.maxMembers,
     });
   } catch (err) {
-    console.error('getGroup error:', err.message);
+    logger.error('getGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -169,7 +188,7 @@ const updateGroup = async (req, res) => {
 
     return success(res, updated, 'Groupe mis à jour');
   } catch (err) {
-    console.error('updateGroup error:', err.message);
+    logger.error('updateGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -197,7 +216,7 @@ const archiveGroup = async (req, res) => {
 
     return success(res, null, 'Groupe archivé');
   } catch (err) {
-    console.error('archiveGroup error:', err.message);
+    logger.error('archiveGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -225,7 +244,7 @@ const unarchiveGroup = async (req, res) => {
 
     return success(res, null, 'Groupe réactivé');
   } catch (err) {
-    console.error('unarchiveGroup error:', err.message);
+    logger.error('unarchiveGroup error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -252,7 +271,7 @@ const getMemberGroups = async (req, res) => {
 
     return success(res, groups);
   } catch (err) {
-    console.error('getMemberGroups error:', err.message);
+    logger.error('getMemberGroups error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -317,7 +336,7 @@ const getCycleRecap = async (req, res) => {
       contributions,
     });
   } catch (err) {
-    console.error('getCycleRecap error:', err.message);
+    logger.error('getCycleRecap error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

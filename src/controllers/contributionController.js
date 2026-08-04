@@ -1,4 +1,5 @@
 // src/controllers/contributionController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const { notifyTurnReceived } = require('../services/notificationService');
@@ -10,6 +11,13 @@ const getContributions = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { status, cycleId, roundNumber } = req.query;
+    // Pagination : auparavant cette route renvoyait TOUTES les cotisations
+    // d'un coup, sans limite — un groupe avec un long historique (plusieurs
+    // cycles) chargeait tout en un seul appel. `page`/`pageSize` restent
+    // optionnels pour ne pas casser les clients existants qui n'en
+    // envoient pas encore (ils obtiennent alors la 1ère page, 20 items).
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
 
     const group = await prisma.group.findFirst({
       where: { id: groupId, tenantId: req.tenant.id },
@@ -28,11 +36,16 @@ const getContributions = async (req, res) => {
     if (roundNumber) where.roundNumber = parseInt(roundNumber);
     if (status) where.status = status;
 
-    const contributions = await prisma.contribution.findMany({
-      where,
-      include: { user: true },
-      orderBy: [{ roundNumber: 'asc' }, { dueDate: 'asc' }],
-    });
+    const [total, contributions] = await Promise.all([
+      prisma.contribution.count({ where }),
+      prisma.contribution.findMany({
+        where,
+        include: { user: true },
+        orderBy: [{ roundNumber: 'asc' }, { dueDate: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
 
     const now = new Date();
     const enriched = contributions.map((c) => ({
@@ -40,9 +53,12 @@ const getContributions = async (req, res) => {
       isLate: c.status === 'PENDING' && new Date(c.dueDate) < now,
     }));
 
-    return success(res, enriched);
+    return success(res, {
+      items: enriched,
+      pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    });
   } catch (err) {
-    console.error('getContributions error:', err.message);
+    logger.error('getContributions error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -92,7 +108,7 @@ const markContributionReceived = async (req, res) => {
 
     return success(res, updated, 'Cotisation marquée comme reçue');
   } catch (err) {
-    console.error('markContributionReceived error:', err.message);
+    logger.error('markContributionReceived error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -141,7 +157,7 @@ const markContributionLate = async (req, res) => {
 
     return success(res, updated, 'Cotisation marquée en retard');
   } catch (err) {
-    console.error('markContributionLate error:', err.message);
+    logger.error('markContributionLate error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -170,7 +186,7 @@ const getMemberContributions = async (req, res) => {
 
     return success(res, enriched);
   } catch (err) {
-    console.error('getMemberContributions error:', err.message);
+    logger.error('getMemberContributions error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -196,7 +212,7 @@ const hideMemberContribution = async (req, res) => {
 
     return success(res, null, 'Retiré de votre historique');
   } catch (err) {
-    console.error('hideMemberContribution error:', err.message);
+    logger.error('hideMemberContribution error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -250,7 +266,7 @@ const getGroupTurns = async (req, res) => {
       allReceived: turns.length > 0 && receivedCount === turns.length,
     });
   } catch (err) {
-    console.error('getGroupTurns error:', err.message);
+    logger.error('getGroupTurns error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -306,7 +322,7 @@ const markTurnReceived = async (req, res) => {
     return success(res, updated,
       `${updated.user.name} a bien reçu sa mise — Tour N°${turnNumber} (Cycle N°${activeCycle.cycleNumber})`);
   } catch (err) {
-    console.error('markTurnReceived error:', err.message);
+    logger.error('markTurnReceived error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -371,7 +387,7 @@ const exportGroupContributions = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${group.name.replace(/[^a-z0-9]/gi, '_')}_cotisations.csv"`);
     return res.status(200).send(csvWithBom);
   } catch (err) {
-    console.error('exportGroupContributions error:', err.message);
+    logger.error('exportGroupContributions error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

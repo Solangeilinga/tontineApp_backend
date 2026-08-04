@@ -1,4 +1,5 @@
 // src/services/auditService.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 
 // ─── ENREGISTRER UNE ACTION DANS LE JOURNAL D'AUDIT ───────────────────────
@@ -30,7 +31,7 @@ const logAction = async ({
       },
     });
   } catch (err) {
-    console.error('Erreur écriture journal d\'audit:', err.message);
+    logger.error('Erreur écriture journal d\'audit:', err.message);
   }
 };
 

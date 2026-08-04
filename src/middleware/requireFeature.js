@@ -7,6 +7,7 @@
 // Exemple d'utilisation :
 //   router.get('/:groupId/export', authenticateTenant, requireFeature('exportEnabled'), ctrl.exportContributions);
 
+const logger = require('../config/logger');
 const { error } = require('../utils/response');
 const { checkFeature } = require('../services/subscriptionService');
 
@@ -16,7 +17,7 @@ const requireFeature = (featureKey) => async (req, res, next) => {
     if (!allowed) return error(res, reason, 402); // 402 Payment Required
     next();
   } catch (err) {
-    console.error('requireFeature error:', err.message);
+    logger.error('requireFeature error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

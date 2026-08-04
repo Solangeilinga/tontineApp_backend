@@ -1,4 +1,5 @@
 // src/controllers/cycleController.js
+const logger = require('../config/logger');
 const prisma = require('../config/database');
 const { success, error } = require('../utils/response');
 const { getActiveCycle, startFullCycle, closeActiveCycle } = require('../services/cycleService');
@@ -40,7 +41,7 @@ const startCycle = async (req, res) => {
     return success(res, cycle,
       `Cycle N°${cycle.cycleNumber} démarré — ${totalTurns} tour(s) programmé(s), échéance finale le ${new Date(cycle.dueDate).toLocaleDateString('fr-FR')}`);
   } catch (err) {
-    console.error('startCycle error:', err.message);
+    logger.error('startCycle error:', err.message);
     return error(res, err.message || 'Erreur serveur', err.message?.includes('déjà actif') ? 409 : 500);
   }
 };
@@ -89,7 +90,7 @@ const getCycleHistory = async (req, res) => {
 
     return success(res, enriched);
   } catch (err) {
-    console.error('getCycleHistory error:', err.message);
+    logger.error('getCycleHistory error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -124,7 +125,7 @@ const closeCurrentCycle = async (req, res) => {
     return success(res, closed,
       `Cycle N°${closed.cycleNumber} clôturé. Vous pouvez démarrer un nouveau cycle.`);
   } catch (err) {
-    console.error('closeCurrentCycle error:', err.message);
+    logger.error('closeCurrentCycle error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };
@@ -192,7 +193,7 @@ const rescheduleTurn = async (req, res) => {
 
     return success(res, updatedTurn, 'Date du tour mise à jour');
   } catch (err) {
-    console.error('rescheduleTurn error:', err.message);
+    logger.error('rescheduleTurn error:', err.message);
     return error(res, 'Erreur serveur', 500);
   }
 };

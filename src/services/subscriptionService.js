@@ -1,4 +1,5 @@
 // src/services/subscriptionService.js
+const logger = require('../config/logger');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../config/database');
 const { getPlanConfig, isPaidPlan, TRIAL_DAYS } = require('../config/plans');
@@ -218,7 +219,7 @@ const handleWebhookPayload = async (payload) => {
   });
 
   if (!payment) {
-    console.warn(`Webhook SebPay reçu pour une référence inconnue: ${external_reference}`);
+    logger.warn(`Webhook SebPay reçu pour une référence inconnue: ${external_reference}`);
     return { handled: false };
   }
 

@@ -1,4 +1,5 @@
 // src/config/firebase.js
+const logger = require('../config/logger');
 const admin = require('firebase-admin');
 
 let initialized = false;
@@ -15,9 +16,9 @@ const initFirebase = () => {
       }),
     });
     initialized = true;
-    console.log('✅ Firebase initialisé');
+    logger.info('✅ Firebase initialisé');
   } catch (err) {
-    console.error('❌ Erreur Firebase:', err.message);
+    logger.error('❌ Erreur Firebase:', err.message);
   }
 };
 

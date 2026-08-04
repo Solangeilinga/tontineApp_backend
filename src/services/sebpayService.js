@@ -6,6 +6,7 @@
 //
 // Docs SebPay : https://new.sebpay.bj/fr/docs
 
+const logger = require('../config/logger');
 const crypto = require('crypto');
 
 const SEBPAY_BASE_URL = process.env.SEBPAY_BASE_URL || 'https://newapi.sebpay.bj/api/v1';
@@ -16,7 +17,7 @@ const SEBPAY_CALLBACK_URL = process.env.SEBPAY_CALLBACK_URL; // ex: https://api.
 if (!SEBPAY_PUBLIC_KEY || !SEBPAY_SECRET_KEY) {
   // On ne throw pas au chargement du module (permet de démarrer le serveur
   // même en dev sans clés), mais on log fort pour que ce soit visible.
-  console.warn('⚠️  SEBPAY_PUBLIC_KEY / SEBPAY_SECRET_KEY non configurées — les paiements échoueront.');
+  logger.warn('⚠️  SEBPAY_PUBLIC_KEY / SEBPAY_SECRET_KEY non configurées — les paiements échoueront.');
 }
 
 const sebpayHeaders = () => ({
