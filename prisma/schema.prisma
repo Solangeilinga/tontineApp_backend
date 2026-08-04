@@ -27,6 +27,10 @@ model Tenant {
   pinHash    String?  @map("pin_hash")
   fcmToken   String?  @map("fcm_token")
   isActive   Boolean  @default(true) @map("is_active")
+  // Horodatage de suppression (soft delete) — null tant que le compte est
+  // actif. Le enregistrement lui-même reste en base (anonymisé), voir
+  // DeletedAccountArchive pour la trace des données d'origine.
+  deletedAt  DateTime? @map("deleted_at")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -49,6 +53,8 @@ model User {
   fcmToken   String?  @map("fcm_token")
   pinHash    String?  @map("pin_hash")
   isActive   Boolean  @default(true) @map("is_active")
+  // Horodatage de suppression (soft delete) — voir Tenant.deletedAt.
+  deletedAt  DateTime? @map("deleted_at")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -384,4 +390,35 @@ model DeletionRequest {
 enum DeletionRequestStatus {
   PENDING
   PROCESSED
+}
+
+// ─── DELETED ACCOUNT ARCHIVE (trace sécurisée, hors app) ───────────────────
+// Quand un compte est supprimé (soft delete — voir tenantDeleteAccount /
+// memberDeleteAccount), la fiche vivante (Tenant/User) est immédiatement
+// anonymisée pour respecter le principe de minimisation des données au
+// quotidien. Mais AVANT anonymisation, un instantané des données d'origine
+// est conservé ICI — table jamais exposée par aucune route API, réservée à
+// un usage interne (litige, fraude, obligation légale, demande d'un
+// utilisateur contestant une suppression). Politique de purge à définir
+// séparément (ex: script planifié qui efface les archives >90 jours).
+model DeletedAccountArchive {
+  id            String      @id @default(uuid())
+  accountType   AccountType
+  accountId     String      @map("account_id")
+  originalName  String      @map("original_name")
+  originalPhone String      @map("original_phone")
+  // Pour un membre (USER), le tenant auquel il appartenait — permet de
+  // recontacter le gérant concerné si besoin d'une vérification.
+  tenantId      String?     @map("tenant_id")
+  // Comment la suppression a été déclenchée (ex: "self_service_app").
+  reason        String?
+  deletedAt     DateTime    @default(now()) @map("deleted_at")
+
+  @@index([accountId])
+  @@map("deleted_account_archives")
+}
+
+enum AccountType {
+  TENANT
+  USER
 }

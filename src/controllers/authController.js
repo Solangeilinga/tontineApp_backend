@@ -652,6 +652,7 @@ const tenantDeleteAccount = async (req, res) => {
     if (!validPin) return error(res, 'PIN incorrect', 401);
 
     const originalName = req.tenant.name;
+    const originalPhone = req.tenant.phone;
     const tenantId = req.tenant.id;
 
     // Annuler l'abonnement immédiatement (pas de remboursement au prorata —
@@ -671,7 +672,20 @@ const tenantDeleteAccount = async (req, res) => {
       });
     }
 
-    // Anonymiser (jamais de suppression SQL directe — voir commentaire du modèle)
+    // Archiver les données d'origine AVANT anonymisation — trace de sécurité
+    // interne (litige, fraude), jamais exposée par une route API.
+    await prisma.deletedAccountArchive.create({
+      data: {
+        accountType: 'TENANT',
+        accountId: tenantId,
+        originalName,
+        originalPhone,
+        reason: 'self_service_app',
+      },
+    });
+
+    // Anonymiser la fiche vivante (jamais de suppression SQL directe — le
+    // détail d'origine reste dans DeletedAccountArchive ci-dessus).
     await prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -681,6 +695,7 @@ const tenantDeleteAccount = async (req, res) => {
         pinHash: null,
         fcmToken: null,
         isActive: false,
+        deletedAt: new Date(),
       },
     });
 
@@ -692,6 +707,7 @@ const tenantDeleteAccount = async (req, res) => {
       action: 'TENANT_ACCOUNT_DELETED',
       targetType: 'Tenant',
       targetId: tenantId,
+      metadata: { originalPhone },
     });
 
     // Prévenir tous les membres actifs que leurs groupes sont fermés.
@@ -737,8 +753,22 @@ const memberDeleteAccount = async (req, res) => {
     if (!validPin) return error(res, 'PIN incorrect', 401);
 
     const originalName = req.user.name;
+    const originalPhone = req.user.phone;
     const userId = req.user.id;
     const tenantId = req.user.tenantId;
+
+    // Archiver les données d'origine AVANT anonymisation — trace de sécurité
+    // interne, jamais exposée par une route API.
+    await prisma.deletedAccountArchive.create({
+      data: {
+        accountType: 'USER',
+        accountId: userId,
+        originalName,
+        originalPhone,
+        tenantId,
+        reason: 'self_service_app',
+      },
+    });
 
     await prisma.user.update({
       where: { id: userId },
@@ -749,6 +779,7 @@ const memberDeleteAccount = async (req, res) => {
         pinHash: null,
         fcmToken: null,
         isActive: false,
+        deletedAt: new Date(),
       },
     });
 
@@ -760,6 +791,7 @@ const memberDeleteAccount = async (req, res) => {
       action: 'MEMBER_ACCOUNT_DELETED',
       targetType: 'User',
       targetId: userId,
+      metadata: { originalPhone },
     });
 
     // Prévenir le gérant.
