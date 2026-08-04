@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validate');
-const { otpLimiter } = require('../middleware/rateLimiter');
+const { otpLimiter, otpVerifyLimiter } = require('../middleware/rateLimiter');
 const { authenticateTenant, authenticateUser } = require('../middleware/auth');
 const ctrl = require('../controllers/authController');
 
@@ -24,13 +24,20 @@ const pinValidator = body('pin')
   .isLength({ min: 4, max: 4 }).withMessage('PIN doit avoir 4 chiffres')
   .isNumeric().withMessage('PIN doit être numérique');
 
+// ── Rafraîchir l'access token (gérant ET membre — le type est dans le JWT)
+router.post('/refresh',
+  [body('refreshToken').notEmpty().withMessage('refreshToken requis')],
+  validate,
+  ctrl.refreshAccessToken
+);
+
 // ── GÉRANT — Inscription
 router.post('/tenant/register/request-otp',
   otpLimiter, [phoneValidator, nameValidator], validate,
   ctrl.tenantRequestOTP
 );
 router.post('/tenant/register/verify',
-  [phoneValidator, otpValidator], validate,
+  otpVerifyLimiter, [phoneValidator, otpValidator], validate,
   ctrl.tenantVerifyAndRegister
 );
 
@@ -40,7 +47,7 @@ router.post('/tenant/login/request-otp',
   ctrl.tenantLoginRequestOTP
 );
 router.post('/tenant/login/verify',
-  [phoneValidator, otpValidator], validate,
+  otpVerifyLimiter, [phoneValidator, otpValidator], validate,
   ctrl.tenantLoginVerify
 );
 
@@ -75,7 +82,7 @@ router.post('/tenant/phone/request-otp',
   ctrl.tenantChangePhoneRequestOTP
 );
 router.post('/tenant/phone/verify',
-  authenticateTenant,
+  authenticateTenant, otpVerifyLimiter,
   [body('newPhone').notEmpty(), otpValidator],
   validate,
   ctrl.tenantChangePhoneVerify
@@ -93,7 +100,7 @@ router.post('/member/join/request-otp',
   ctrl.memberRequestOTP
 );
 router.post('/member/join/verify',
-  [phoneValidator, otpValidator], validate,
+  otpVerifyLimiter, [phoneValidator, otpValidator], validate,
   ctrl.memberVerifyAndJoin
 );
 
@@ -103,7 +110,7 @@ router.post('/member/login/request-otp',
   ctrl.memberLoginRequestOTP
 );
 router.post('/member/login/verify',
-  [phoneValidator, otpValidator], validate,
+  otpVerifyLimiter, [phoneValidator, otpValidator], validate,
   ctrl.memberLoginVerify
 );
 // Uniquement si memberLoginVerify a répondu requiresSelection: true
@@ -130,7 +137,7 @@ router.post('/member/phone/request-otp',
   ctrl.memberChangePhoneRequestOTP
 );
 router.post('/member/phone/verify',
-  authenticateUser,
+  authenticateUser, otpVerifyLimiter,
   [body('newPhone').notEmpty(), otpValidator],
   validate,
   ctrl.memberChangePhoneVerify

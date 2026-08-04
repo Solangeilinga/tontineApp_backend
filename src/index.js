@@ -21,14 +21,34 @@ app.set('trust proxy', 1);
 
 // ── CORS ─────────────────────────────────────────────────────────────────
 // L'API n'utilise QUE des tokens Bearer (jamais de cookies de session), donc
-// autoriser toute origine ne présente pas de risque CSRF classique — un
-// site tiers ne peut de toute façon pas lire le token d'un autre onglet/app.
+// un `origin: '*'` ne permet PAS de voler un token (un site tiers ne peut
+// pas lire le storage d'un autre onglet/app). Mais par défense en
+// profondeur (et pour éviter qu'un futur usage de cookies ne devienne un
+// vrai risque CSRF sans qu'on y pense), on restreint désormais aux
+// origines explicitement autorisées — configurable via env pour ne pas
+// coder en dur un domaine potentiellement erroné.
+//
+// CORS_ALLOWED_ORIGINS="https://matontine.app,https://www.matontine.app"
 // Nécessaire notamment pour que le site vitrine (formulaire de demande de
-// suppression de compte, hébergé sur un domaine externe) puisse appeler
-// POST /api/public/deletion-requests sans être bloqué par le navigateur.
+// suppression de compte) puisse appeler POST /api/public/deletion-requests
+// sans être bloqué par le navigateur — ajoute son domaine à la liste.
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(helmet());
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    // Pas d'origine (apps mobiles natives, curl, Postman) → toujours OK,
+    // c'est le cas d'usage principal de cette API (app Flutter).
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`⚠️  CORS refusé pour l'origine : ${origin}`);
+    return callback(new Error('Non autorisé par CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -80,32 +100,30 @@ app.listen(PORT, () => {
   scheduleDailyReminders();
   scheduleSubscriptionChecks();
 
-  // ── Synchroniser le schéma Prisma vers la base, EN ARRIÈRE-PLAN ─────────
-  // Volontairement APRÈS app.listen() et non-bloquant : sur un hébergeur en
-  // cold-start (ex: Render en offre gratuite), retarder l'écoute du port
-  // ajoute plusieurs secondes à CHAQUE réveil du service, ce qui fait
-  // dépasser les timeouts client pour TOUTES les requêtes, pas seulement
-  // celles touchant les nouvelles tables. On préfère démarrer tout de suite,
-  // quitte à ce que les tout premiers appels aux nouvelles routes échouent
-  // pendant les quelques secondes que dure la synchro (auto-résolu ensuite).
+  // ── ⚠️ AUCUNE synchronisation de schéma ne doit avoir lieu ici. ─────────
+  // Auparavant, ce bloc lançait `prisma db push --accept-data-loss` à
+  // CHAQUE démarrage du serveur — commande qui accepte explicitement toute
+  // perte de données nécessaire (colonnes supprimées, types changés) sans
+  // revue humaine ni rollback possible. Un simple redémarrage/redeploy
+  // pouvait donc altérer silencieusement les données de production.
   //
-  // Pourquoi dans le code et pas juste "scripts.start" de package.json :
-  // certains hébergeurs (Render...) configurent une Start Command dans leur
-  // tableau de bord qui ignore complètement le "start" de package.json.
-  if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
-    if (!process.env.DIRECT_URL) {
-      console.warn('⚠️  DIRECT_URL manquante — si DATABASE_URL passe par un pooler (Supabase, PgBouncer...), `db push` va probablement échouer ou rester bloqué. Voir .env.example.');
-    }
-    const { exec } = require('child_process');
-    console.log('🔄 Synchronisation du schéma Prisma avec la base (arrière-plan)...');
-    exec('npx prisma db push --accept-data-loss', (err, stdout, stderr) => {
-      if (err) {
-        console.error('⚠️  Échec de la synchronisation Prisma:', err.message);
-        return;
-      }
-      console.log('✅ Schéma Prisma synchronisé');
-      if (stdout) console.log(stdout);
-    });
+  // La bonne pratique : des migrations SQL versionnées et commitées
+  // (`prisma/migrations/`), appliquées par une étape de déploiement
+  // EXPLICITE et séparée du process applicatif — jamais au runtime.
+  //
+  //   1. En local : `npx prisma migrate dev --name <description>` crée et
+  //      applique la migration, et l'ajoute à prisma/migrations/ (à commiter).
+  //   2. En production : `npx prisma migrate deploy` (voir script "release"
+  //      dans package.json) rejoue uniquement les migrations non encore
+  //      appliquées, SANS jamais accepter de perte de données implicite —
+  //      si une migration est destructive, elle doit être écrite/relue
+  //      explicitement par un humain.
+  //   3. Sur Render/Railway : configurer cette commande comme "Release
+  //      Command" / "Pre-Deploy Command" dans le dashboard, pas dans le
+  //      code applicatif (qui ignore de toute façon souvent "start" de
+  //      package.json au profit d'une Start Command dédiée).
+  if (process.env.NODE_ENV === 'production' && !process.env.CI) {
+    console.log('ℹ️  Rappel : les migrations Prisma doivent être appliquées via `npm run release` (prisma migrate deploy) en étape de déploiement, pas au démarrage du serveur.');
   }
 });
 

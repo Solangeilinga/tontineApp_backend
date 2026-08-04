@@ -4,10 +4,12 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
+# package-lock.json est volontairement COMMITÉ (pas ignoré) : une
+# application (contrairement à une lib) doit avoir des builds reproductibles.
 
 # Prisma
-prisma/migrations/
+# prisma/migrations/ est volontairement COMMITÉ : c'est la source de vérité
+# du schéma en production (voir `npm run release` = prisma migrate deploy).
 
 # Logs
 logs/

@@ -93,6 +93,7 @@ model Group {
   turns         Turn[]
   cycles        Cycle[]
 
+  @@index([tenantId])
   @@map("groups")
 }
 
@@ -110,6 +111,7 @@ model GroupMember {
 
   @@unique([groupId, userId])
   @@unique([groupId, orderTurn])
+  @@index([userId])
   @@map("group_members")
 }
 
@@ -161,6 +163,9 @@ model Contribution {
   user  User  @relation(fields: [userId], references: [id])
   cycle Cycle @relation(fields: [cycleId], references: [id])
 
+  @@index([groupId])
+  @@index([userId])
+  @@index([cycleId])
   @@map("contributions")
 }
 
@@ -204,6 +209,8 @@ model Notification {
   tenant Tenant @relation(fields: [tenantId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
 
+  @@index([userId, isDeleted, sentAt])
+  @@index([tenantId])
   @@map("notifications")
 }
 
