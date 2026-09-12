@@ -15,10 +15,21 @@ const getRedisClient = async () => {
     const client = createClient({
       url: process.env.REDIS_URL,
       socket: { connectTimeout: 8000 },
+      // Sans ça, une commande envoyée pendant une reconnexion en cours est
+      // mise en file d'attente et n'échoue JAMAIS tant que la reconnexion
+      // ne réussit pas — observé en prod : le client entrait dans une
+      // boucle de reconnexion qui échouait en continu (toutes les ~400ms),
+      // et `setEx()` restait pendante indéfiniment derrière, sans jamais
+      // remonter d'erreur à l'appelant.
+      disableOfflineQueue: true,
     });
 
     client.on('error', (err) => {
-      logger.error('❌ Redis Client Error:', err);
+      // `logger.error('texte', err)` n'est PAS le format pino attendu —
+      // pino traite le premier argument comme le message et ignore les
+      // suivants s'il n'y a pas de placeholder printf, donc `err` (et sa
+      // vraie raison d'échec) disparaissait complètement des logs.
+      logger.error({ err }, '❌ Redis Client Error');
     });
 
     client.on('connect', () => {
