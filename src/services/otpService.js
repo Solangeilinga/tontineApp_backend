@@ -24,14 +24,32 @@ const sms = at.SMS;
 /**
  * Envoie un OTP par SMS et le stocke dans Redis
  */
+// ── Diagnostic temporaire — à retirer une fois le bug de blocage identifié.
+// `sms.send()` (Africa's Talking) n'a pas de timeout interne : si leur API
+// ne répond jamais, la requête entière reste pendante indéfiniment côté
+// client (observé : DioExceptionType.receiveTimeout après 45s, RIEN dans
+// les logs Render car la réponse HTTP n'est jamais envoyée). Ce wrapper
+// force un échec net après 15s pour confirmer si c'est bien là que ça
+// bloque, plutôt que de laisser la requête pendre pour toujours.
+const withTimeout = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout (${ms}ms) sur : ${label}`)), ms)
+    ),
+  ]);
+
 const sendOTP = async (phone) => {
   const otp = generateOTP(parseInt(process.env.OTP_LENGTH || '6'));
   const key = `${OTP_PREFIX}${phone}`;
 
-  const redis = await getRedisClient();
+  logger.info(`[OTP] Étape 1/4 — connexion Redis pour ${phone}`);
+  const redis = await withTimeout(getRedisClient(), 15000, 'getRedisClient()');
+  logger.info('[OTP] Étape 2/4 — Redis connecté, écriture de la clé');
 
   // Stocker dans Redis avec expiration
-  await redis.setEx(key, OTP_EXPIRY, otp);
+  await withTimeout(redis.setEx(key, OTP_EXPIRY, otp), 15000, 'redis.setEx()');
+  logger.info('[OTP] Étape 3/4 — clé écrite dans Redis');
 
   // En développement, on affiche l'OTP dans les logs
   if (process.env.NODE_ENV === 'development') {
@@ -49,7 +67,9 @@ const sendOTP = async (phone) => {
     // approuvé — sinon Africa's Talking utilise son expéditeur générique.
     if (process.env.AT_SENDER_ID) smsPayload.from = process.env.AT_SENDER_ID;
 
-    const response = await sms.send(smsPayload);
+    logger.info('[OTP] Étape 4/4 — appel sms.send() vers Africa\'s Talking');
+    const response = await withTimeout(sms.send(smsPayload), 15000, "sms.send() Africa's Talking");
+    logger.info('[OTP] sms.send() a répondu');
 
     const recipient = response?.SMSMessageData?.Recipients?.[0];
     logger.info('📋 Réponse Africa\'s Talking:', JSON.stringify(response?.SMSMessageData || response));
