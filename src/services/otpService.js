@@ -31,13 +31,13 @@ const sms = at.SMS;
 // les logs Render car la réponse HTTP n'est jamais envoyée). Ce wrapper
 // force un échec net après 15s pour confirmer si c'est bien là que ça
 // bloque, plutôt que de laisser la requête pendre pour toujours.
-const withTimeout = (promise, ms, label) =>
-  Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout (${ms}ms) sur : ${label}`)), ms)
-    ),
-  ]);
+const withTimeout = (promise, ms, label) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout (${ms}ms) sur : ${label}`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
 
 const sendOTP = async (phone) => {
   const otp = generateOTP(parseInt(process.env.OTP_LENGTH || '6'));
