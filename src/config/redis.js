@@ -14,7 +14,17 @@ const getRedisClient = async () => {
     // jamais cette attente.
     const client = createClient({
       url: process.env.REDIS_URL,
-      socket: { connectTimeout: 8000 },
+      socket: {
+        connectTimeout: 8000,
+        // Par défaut, node-redis retente une connexion indéfiniment en
+        // interne (backoff infini) et `connect()` reste alors pendante
+        // pour toujours si l'hôte est injoignable de façon permanente (ex:
+        // DNS ENOTFOUND — observé en prod : la base Upstash n'existe plus
+        // à cette adresse). `connectTimeout` ne borne qu'UNE tentative,
+        // pas cette boucle de retry — sans désactiver `reconnectStrategy`,
+        // rien ne fait jamais échouer `connect()`.
+        reconnectStrategy: false,
+      },
       // Sans ça, une commande envoyée pendant une reconnexion en cours est
       // mise en file d'attente et n'échoue JAMAIS tant que la reconnexion
       // ne réussit pas — observé en prod : le client entrait dans une
@@ -37,7 +47,16 @@ const getRedisClient = async () => {
     });
 
     try {
-      await client.connect();
+      // Garde-fou en plus de `connectTimeout` : si jamais `connect()`
+      // restait quand même pendante pour une raison qu'on n'a pas prévue,
+      // ceci garantit qu'on échoue au bout de 10s dans tous les cas plutôt
+      // que de reproduire le hang de 45s+ observé en prod.
+      await Promise.race([
+        client.connect(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis connect() timeout (10s)')), 10000)
+        ),
+      ]);
       redisClient = client;
     } catch (err) {
       // Ne PAS garder un client à moitié initialisé en cache : le prochain
