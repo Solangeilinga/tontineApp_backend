@@ -6,17 +6,37 @@ let redisClient;
 
 const getRedisClient = async () => {
   if (!redisClient) {
-    redisClient = createClient({ url: process.env.REDIS_URL });
+    // `connectTimeout` : sans lui, un handshake TCP/TLS qui ne répond
+    // jamais (réseau bloqué, instance Upstash injoignable) laisse
+    // `connect()` — et donc toute commande Redis derrière, `setEx()` inclus
+    // — pendante indéfiniment. Observé en prod : une requête OTP restait
+    // bloquée 45s+ sans la moindre réponse ni log, car rien ne coupait
+    // jamais cette attente.
+    const client = createClient({
+      url: process.env.REDIS_URL,
+      socket: { connectTimeout: 8000 },
+    });
 
-    redisClient.on('error', (err) => {
+    client.on('error', (err) => {
       logger.error('❌ Redis Client Error:', err);
     });
 
-    redisClient.on('connect', () => {
+    client.on('connect', () => {
       logger.info('✅ Redis connecté');
     });
 
-    await redisClient.connect();
+    try {
+      await client.connect();
+      redisClient = client;
+    } catch (err) {
+      // Ne PAS garder un client à moitié initialisé en cache : le prochain
+      // appel doit retenter une connexion fraîche, pas hériter d'un état
+      // cassé pour toujours (c'est cette absence de reset qui, combinée à
+      // l'absence de `connectTimeout`, transformait un premier échec en
+      // panne permanente jusqu'au redémarrage du service).
+      await client.disconnect().catch(() => {});
+      throw err;
+    }
   }
   return redisClient;
 };
