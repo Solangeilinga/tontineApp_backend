@@ -37,7 +37,7 @@ app.set('trust proxy', 1);
 // origines explicitement autorisées — configurable via env pour ne pas
 // coder en dur un domaine potentiellement erroné.
 //
-// CORS_ALLOWED_ORIGINS="https://matontine.app,https://www.matontine.app"
+// CORS_ALLOWED_ORIGINS="https://matontinesite.netlify.app,https://matontineweb.netlify.app"
 // Nécessaire notamment pour que le site vitrine (formulaire de demande de
 // suppression de compte) puisse appeler POST /api/public/deletion-requests
 // sans être bloqué par le navigateur — ajoute son domaine à la liste.
@@ -55,8 +55,14 @@ app.use(cors({
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    console.warn(`⚠️  CORS refusé pour l'origine : ${origin}`);
-    return callback(new Error('Non autorisé par CORS'));
+    logger.warn(`⚠️  CORS refusé pour l'origine : ${origin}`);
+    // `status` marqué explicitement : sans ça cette erreur tombe dans le
+    // handler générique ci-dessous et ressort en 500 "Erreur serveur
+    // interne" — trompeur pour un rejet CORS, qui est un comportement
+    // normal (pas un bug serveur) et mérite son propre code 403.
+    const corsError = new Error('Origine non autorisée par CORS');
+    corsError.status = 403;
+    return callback(corsError);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -110,6 +116,11 @@ if (sentryConfig.isEnabled) {
 
 // ── Erreur globale
 app.use((err, req, res, next) => {
+  // Rejet CORS : déjà logué en warn dans le callback `origin` ci-dessus,
+  // pas la peine de le remonter aussi en erreur serveur.
+  if (err.status === 403) {
+    return res.status(403).json({ success: false, message: err.message });
+  }
   logger.error({ err }, 'Erreur non gérée');
   res.status(500).json({ success: false, message: 'Erreur serveur interne' });
 });
